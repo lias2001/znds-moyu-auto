@@ -1,0 +1,24 @@
+name: ZNDS全自动云端摸鱼
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */1 * * *' # 每小时重启一次任务，防止卡死
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      ZNDS_COOKIE: ${{ secrets.ZNDS_COOKIE }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install system chrome deps
+        run: |
+          sudo apt update
+          sudo apt install -y chromium-browser libgbm-dev libasound2
+      - name: Install npm dependencies
+        run: npm install
+      - name: Start Auto Moyu
+        run: node moyu.js
