@@ -1,23 +1,24 @@
-name: ZNDS全自动云端摸鱼
+name: ZNDS全自动云端摸鱼（5小时50分片续挂）
 on:
-  workflow_dispatch:
+  workflow_dispatch:    # 手动启动
   schedule:
-    - cron: '0 */1 * * *'
+    - cron: '50 */5 * * *'  # 每 5小时50分钟 自动续挂一次
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 350  # 5小时50分 = 350分钟
     env:
       ZNDS_COOKIE: ${{ secrets.ZNDS_COOKIE }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: 安装Chrome依赖（修复版，无报错）
+      - name: 安装Chrome依赖（无报错稳定版）
         run: |
           sudo apt-get update
           sudo apt-get install -y chromium-browser \
