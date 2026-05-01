@@ -1,10 +1,10 @@
 const puppeteer = require('puppeteer');
 
-// 精准时间配置
+// 时间配置（严格按你要求）
 const CONFIG = {
   url: "https://www.znds.com/plugin.php?id=muanyun_053",
-  MOYU_DURATION: 9 * 60 * 1000,      // 开始 → 停止 = 9分钟
-  LOOP_INTERVAL: 9 * 60 * 1000 + 10000, // 一轮结束 → 下一轮开始 = 9分10秒
+  MOYU_DURATION: 9 * 60 * 1000,      // 开始→停止：9分钟
+  LOOP_INTERVAL: 9 * 60 * 1000 + 10000, // 一轮后等待：9分10秒
 };
 
 const COOKIE = process.env.ZNDS_COOKIE || '';
@@ -19,7 +19,7 @@ function parseCookie(str, domain) {
   return list;
 }
 
-// 延迟工具
+// 延迟
 function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -36,43 +36,54 @@ async function clickButton(page, text) {
   } catch (e) {}
 }
 
-// 执行一轮摸鱼
+// 执行一轮摸鱼（已修复超时、异常捕获加固）
 async function doMoyu(browser) {
-  const page = await browser.newPage();
-  await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
-  await page.goto(CONFIG.url, { waitUntil: "networkidle2" });
-  await delay(2000);
+  try {
+    const page = await browser.newPage();
+    // 🔥 修复：关闭超时限制
+    page.setDefaultNavigationTimeout(0);
+    page.setDefaultTimeout(0);
 
-  // 开始摸鱼
-  await clickButton(page, "开始摸鱼");
+    await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
+    
+    // 🔥 修复：超慢网页也能加载，不报错
+    await page.goto(CONFIG.url, {
+      waitUntil: "domcontentloaded",
+      timeout: 0
+    });
 
-  // 【固定9分钟】
-  console.log("⏳ 已开始，等待 9 分钟后停止……");
-  await delay(CONFIG.MOYU_DURATION);
+    await delay(2000);
+    await clickButton(page, "开始摸鱼");
 
-  // 停止摸鱼
-  await clickButton(page, "停止");
+    console.log("⏳ 摸鱼中，等待 9 分钟……");
+    await delay(CONFIG.MOYU_DURATION);
 
-  await page.close();
+    await clickButton(page, "停止");
+    await page.close().catch(() => {});
+
+  } catch (err) {
+    console.log("⚠️ 本轮异常，已自动跳过：", err.message);
+  }
 }
 
-// 主循环：一次启动，永久运行
+// 主循环
 async function main() {
-  console.log("🔥 摸鱼程序已启动 → 永久自动循环");
-  console.log("📌 规则：开始↔停止=9分钟 | 轮循间隔=9分10秒\n");
+  console.log("🔥 启动成功：一次运行，永久9分钟循环\n");
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-zygote"
+    ]
   });
 
   while (true) {
-    try {
-      await doMoyu(browser);
-      console.log("✅ 一轮完成，等待 9分10秒 后自动开始下一轮...\n");
-    } catch (err) {
-      console.log("⚠️ 异常，继续循环：", err.message);
-    }
+    await doMoyu(browser);
+    console.log("✅ 一轮完成 → 等待9分10秒后继续\n");
     await delay(CONFIG.LOOP_INTERVAL);
   }
 }
