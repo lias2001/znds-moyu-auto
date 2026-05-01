@@ -4,7 +4,7 @@ const puppeteer = require('puppeteer');
 const CONFIG = {
   url: "https://www.znds.com/plugin.php?id=muanyun_053",
   MOYU_DURATION: 9 * 60 * 1000,      // 开始→停止：9分钟
-  LOOP_INTERVAL: 9 * 60 * 1000 + 10000, // 一轮后等待：9分10秒
+  LOOP_INTERVAL: 0 * 60 * 1000 + 2000, // 一轮后等待：2秒
 };
 
 const COOKIE = process.env.ZNDS_COOKIE || '';
@@ -83,7 +83,7 @@ async function main() {
 
   while (true) {
     await doMoyu(browser);
-    console.log("✅ 一轮完成 → 等待9分10秒后继续\n");
+    console.log("✅ 一轮完成 → 等待2秒后继续\n");
     await delay(CONFIG.LOOP_INTERVAL);
   }
 }
