@@ -1,45 +1,16 @@
-name: ZNDS全自动云端摸鱼（5小时50分片续挂）
+name: ZNDS摸鱼（每9分钟自动一轮）
 on:
-  workflow_dispatch:    # 手动启动
+  workflow_dispatch:
   schedule:
-    - cron: '50 */5 * * *'  # 每 5小时50分钟 自动续挂一次
+    - cron: '*/9 * * * *'  # 每 9 分钟执行一次
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 350  # 5小时50分 = 350分钟
+    timeout-minutes: 1
     env:
       ZNDS_COOKIE: ${{ secrets.ZNDS_COOKIE }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: 安装Chrome依赖（无报错稳定版）
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser \
-            libgbm-dev \
-            libatk1.0-0 \
-            libatk-bridge2.0-0 \
-            libcups2 \
-            libxkbcommon0 \
-            libxcomposite1 \
-            libxdamage1 \
-            libxfixes3 \
-            libxrandr2 \
-            libpango-1.0-0 \
-            libcairo2 \
-            libgdk-pixbuf2.0-0 \
-            libnss3 \
-            libdrm2 \
-            libxcb1
-
-      - name: 安装依赖
-        run: npm install
-
-      - name: 启动摸鱼
+      - name: 运行摸鱼（纯接口，超快）
         run: node moyu.js
