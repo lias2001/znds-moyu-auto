@@ -1,16 +1,38 @@
-name: ZNDS摸鱼（每9分钟自动一轮）
+name: ZNDS摸鱼(9分钟一轮+缓存浏览器)
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/9 * * * *'  # 每 9 分钟执行一次
+    - cron: '*/9 * * * *' # 每9分钟启动一次
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 10
     env:
       ZNDS_COOKIE: ${{ secrets.ZNDS_COOKIE }}
     steps:
       - uses: actions/checkout@v4
-      - name: 运行摸鱼（纯接口，超快）
+
+      - name: 设置Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 🔥 缓存浏览器，只安装一次
+      - name: 缓存浏览器依赖
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.cache/puppeteer
+          key: ${{ runner.os }}-puppeteer
+
+      # 首次安装，后续不再装
+      - name: 安装依赖
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: npm install puppeteer
+
+      # 执行摸鱼：开始 → 等9分钟 → 停止
+      - name: 执行摸鱼任务
         run: node moyu.js
