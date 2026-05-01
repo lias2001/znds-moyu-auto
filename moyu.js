@@ -24,6 +24,11 @@ function parseCookie(str, domain) {
   return list;
 }
 
+// 延迟函数（修复 waitForTimeout 报错）
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // 点击按钮
 async function clickButton(page, text) {
   try {
@@ -44,24 +49,26 @@ async function run() {
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-snooze", "--disable-dev-shm-usage"]
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
   });
 
   const page = await browser.newPage();
   await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
 
   await page.goto(CONFIG.url, { waitUntil: "networkidle2" });
-  await page.waitForTimeout(2000);
+  await delay(2000); // 修复这里
 
   // 开始摸鱼
   await clickButton(page, "开始摸鱼");
+  await delay(2000);
 
   // ========== 等待 9 分钟 ==========
   console.log("⏳ 已开始摸鱼，等待 9 分钟后停止...");
-  await page.waitForTimeout(CONFIG.MOYU_DURATION);
+  await delay(CONFIG.MOYU_DURATION);
 
   // 停止摸鱼
   await clickButton(page, "停止");
+  await delay(1000);
 
   await browser.close();
   console.log("✅ 一轮摸鱼完成！\n");
