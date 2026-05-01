@@ -1,8 +1,8 @@
-name: ZNDS摸鱼(9分钟一轮+缓存浏览器)
+name: ZNDS摸鱼(9分钟一轮+缓存)
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/9 * * * *' # 每9分钟启动一次
+    - cron: '*/9 * * * *'
 
 jobs:
   run:
@@ -18,8 +18,7 @@ jobs:
         with:
           node-version: 20
 
-      # 🔥 缓存浏览器，只安装一次
-      - name: 缓存浏览器依赖
+      - name: 缓存 Puppeteer
         id: cache
         uses: actions/cache@v4
         with:
@@ -28,11 +27,9 @@ jobs:
             ~/.cache/puppeteer
           key: ${{ runner.os }}-puppeteer
 
-      # 首次安装，后续不再装
-      - name: 安装依赖
+      - name: 安装依赖（仅第一次）
         if: steps.cache.outputs.cache-hit != 'true'
         run: npm install puppeteer
 
-      # 执行摸鱼：开始 → 等9分钟 → 停止
-      - name: 执行摸鱼任务
+      - name: 执行摸鱼
         run: node moyu.js
