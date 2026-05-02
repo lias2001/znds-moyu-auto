@@ -1,15 +1,15 @@
 const puppeteer = require('puppeteer');
 
-// 时间配置（严格按你要求）
+// 固定配置 禁止修改
 const CONFIG = {
   url: "https://www.znds.com/plugin.php?id=muanyun_053",
-  MOYU_DURATION: 9 * 60 * 1000,      // 开始→停止：9分钟
-  LOOP_INTERVAL: 0 * 60 * 1000 + 2000, // 一轮后等待：2秒
+  MOYU_DURATION: 9 * 60 * 1000, // 开始→停止 严格9分钟
+  ROUND_DELAY: 2000,            // 每轮之间休息2秒
+  TOTAL_ROUND: 39               // 总共重复执行39轮
 };
 
 const COOKIE = process.env.ZNDS_COOKIE || '';
 
-// Cookie解析
 function parseCookie(str, domain) {
   const list = [];
   str.split(";").forEach(item => {
@@ -19,12 +19,10 @@ function parseCookie(str, domain) {
   return list;
 }
 
-// 延迟
 function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 点击按钮
 async function clickButton(page, text) {
   try {
     await page.evaluate(t => {
@@ -33,59 +31,55 @@ async function clickButton(page, text) {
       btn && btn.click();
     }, text);
     console.log(`✅ 点击：${text}`);
-  } catch (e) {}
-}
-
-// 执行一轮摸鱼（已修复超时、异常捕获加固）
-async function doMoyu(browser) {
-  try {
-    const page = await browser.newPage();
-    // 🔥 修复：关闭超时限制
-    page.setDefaultNavigationTimeout(0);
-    page.setDefaultTimeout(0);
-
-    await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
-    
-    // 🔥 修复：超慢网页也能加载，不报错
-    await page.goto(CONFIG.url, {
-      waitUntil: "domcontentloaded",
-      timeout: 0
-    });
-
-    await delay(2000);
-    await clickButton(page, "开始摸鱼");
-
-    console.log("⏳ 摸鱼中，等待 9 分钟……");
-    await delay(CONFIG.MOYU_DURATION);
-
-    await clickButton(page, "停止");
-    await page.close().catch(() => {});
-
-  } catch (err) {
-    console.log("⚠️ 本轮异常，已自动跳过：", err.message);
+  } catch (e) {
+    console.log(`⚠️ ${text} 按钮无需点击/已就绪`);
   }
 }
 
-// 主循环
-async function main() {
-  console.log("🔥 启动成功：一次运行，永久9分钟循环\n");
+// 单次标准摸鱼轮次
+async function singleTask(browser, roundNum) {
+  console.log(`\n---------- 第 ${roundNum} / ${CONFIG.TOTAL_ROUND} 轮 ----------`);
+  const page = await browser.newPage();
+  
+  // 关闭超时限制，根治导航报错
+  page.setDefaultNavigationTimeout(0);
+  page.setDefaultTimeout(0);
 
+  await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
+  await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
+  await delay(2000);
+
+  await clickButton(page, "开始摸鱼");
+  console.log("⏳ 静置9分钟挂机中...");
+  await delay(CONFIG.MOYU_DURATION);
+  await clickButton(page, "停止");
+
+  await page.close().catch(()=>{});
+}
+
+// 主入口：连续跑39轮，轮间休眠2秒
+async function main() {
+  console.log("🔥 批量任务启动，总计执行", CONFIG.TOTAL_ROUND, "轮");
   const browser = await puppeteer.launch({
     headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--no-zygote"
-    ]
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
   });
 
-  while (true) {
-    await doMoyu(browser);
-    console.log("✅ 一轮完成 → 等待2秒后继续\n");
-    await delay(CONFIG.LOOP_INTERVAL);
+  // 循环39次
+  for(let i = 1; i <= CONFIG.TOTAL_ROUND; i++){
+    await singleTask(browser, i);
+    // 最后一轮不用等待2秒
+    if(i < CONFIG.TOTAL_ROUND){
+      await delay(CONFIG.ROUND_DELAY);
+    }
   }
+
+  await browser.close();
+  console.log("\n🎉 全部39轮任务圆满结束！等待下一个定时时间自动唤醒");
 }
 
-main();
+main().catch(err=>{
+  console.error("❌ 全局异常兜底：",err.message);
+  process.exit(1);
+});
+
