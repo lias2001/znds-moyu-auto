@@ -1,12 +1,16 @@
-name: ZNDS定时四点批量摸鱼-39轮间隔2秒
+name: ZNDS定时摸鱼-修复准时触发版
 on:
-  workflow_dispatch: # 保留手动运行
+  workflow_dispatch:
   schedule:
-    # 北京时间转UTC(-8小时)：每日 3:25 / 9:25 / 15:25 / 21:25
-    - cron: '25 19 * * *'
     - cron: '25 1 * * *'
     - cron: '25 7 * * *'
     - cron: '25 13 * * *'
+    - cron: '25 19 * * *'
+
+# 关键加固：防止仓库休眠、定时被屏蔽
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   run:
@@ -21,7 +25,6 @@ jobs:
         with:
           node-version: 20
 
-      # 永久缓存浏览器+依赖，不再重复安装
       - name: 读取Puppeteer缓存
         id: cache-znds
         uses: actions/cache@v4
