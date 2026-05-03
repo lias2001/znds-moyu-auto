@@ -1,13 +1,15 @@
-name: ZNDS定时摸鱼-修复准时触发版
+name: ZNDS定时摸鱼-每日6轮整点触发
 on:
   workflow_dispatch:
   schedule:
-    - cron: '25 1 * * *'
-    - cron: '25 7 * * *'
-    - cron: '25 13 * * *'
-    - cron: '25 19 * * *'
+    # 北京时间 1/5/9/13/17/21 整点自动执行
+    - cron: '0 17 * * *'
+    - cron: '0 21 * * *'
+    - cron: '0 1 * * *'
+    - cron: '0 5 * * *'
+    - cron: '0 9 * * *'
+    - cron: '0 13 * * *'
 
-# 关键加固：防止仓库休眠、定时被屏蔽
 permissions:
   actions: write
   contents: read
@@ -25,7 +27,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: 读取Puppeteer缓存
+      - name: 读取Puppeteer浏览器缓存
         id: cache-znds
         uses: actions/cache@v4
         with:
@@ -34,10 +36,10 @@ jobs:
             ~/.cache/puppeteer
           key: ${{ runner.os }}-znds-puppeteer-cache-v2
 
-      - name: 首次自动补装依赖
+      - name: 仅初次安装依赖，后续秒启动
         if: steps.cache-znds.outputs.cache-hit != 'true'
         run: npm install puppeteer
 
-      - name: 启动39轮连续自动摸鱼
+      - name: 执行39轮批量摸鱼任务
         run: node moyu.js
 
