@@ -1,15 +1,13 @@
 const puppeteer = require('puppeteer');
 
-// 固定配置 禁止修改
 const CONFIG = {
   url: "https://www.znds.com/plugin.php?id=muanyun_053",
-  MOYU_DURATION: 9 * 60 * 1000, // 开始→停止 严格9分钟
-  ROUND_DELAY: 2000,            // 每轮之间休息2秒
-  TOTAL_ROUND: 39               // 总共重复执行39轮
+  CYCLE_DELAY: 2000,
 };
 
 const COOKIE = process.env.ZNDS_COOKIE || '';
 
+// Cookie解析
 function parseCookie(str, domain) {
   const list = [];
   str.split(";").forEach(item => {
@@ -19,67 +17,93 @@ function parseCookie(str, domain) {
   return list;
 }
 
+// 通用延迟
 function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-async function clickButton(page, text) {
+// 点击包含指定文字的按钮
+async function clickByText(page, text) {
   try {
-    await page.evaluate(t => {
-      const btn = Array.from(document.querySelectorAll('button, input[type="button"], a.btn'))
-        .find(el => el.textContent.includes(t));
-      btn && btn.click();
+    await page.evaluate((t) => {
+      const els = Array.from(document.querySelectorAll('button, .btn, [type="button"], a'));
+      const el = els.find(x => x.textContent.trim().includes(t));
+      if (el) el.click();
     }, text);
-    console.log(`✅ 点击：${text}`);
-  } catch (e) {
-    console.log(`⚠️ ${text} 按钮无需点击/已就绪`);
-  }
+    console.log(`✅ 执行：点击 ${text}`);
+  } catch (e) {}
 }
 
-// 单次标准摸鱼轮次
-async function singleTask(browser, roundNum) {
-  console.log(`\n---------- 第 ${roundNum} / ${CONFIG.TOTAL_ROUND} 轮 ----------`);
+// 检查是否在 9:00 ~ 9:59 范围内
+async function checkTimeInRange(page) {
+  return await page.evaluate(() => {
+    const text = document.body.textContent;
+    return /9:\d{2}/.test(text); // 匹配 9:00 - 9:59
+  });
+}
+
+// 单轮任务
+async function runCycle(browser) {
+  console.log("\n--------------------- 开始新一轮 ---------------------");
+
+  // 1. 打开页面
   const page = await browser.newPage();
-  
-  // 关闭超时限制，根治导航报错
   page.setDefaultNavigationTimeout(0);
   page.setDefaultTimeout(0);
 
-  await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
-  await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
-  await delay(2000);
+  try {
+    await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
+    await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
+    await delay(1500);
 
-  await clickButton(page, "开始摸鱼");
-  console.log("⏳ 静置9分钟挂机中...");
-  await delay(CONFIG.MOYU_DURATION);
-  await clickButton(page, "停止");
+    // 2. 识别到“开始摸鱼”就点击
+    console.log("⏳ 等待：开始摸鱼 按钮");
+    while (true) {
+      const found = await page.evaluate(() => document.body.textContent.includes("开始摸鱼"));
+      if (found) {
+        await clickByText(page, "开始摸鱼");
+        break;
+      }
+      await delay(1000);
+    }
 
-  await page.close().catch(()=>{});
+    // 3. 识别时间在 9:00 ~ 9:59 之间 → 点击停止
+    console.log("⏳ 等待：时间到达 9:00 ~ 9:59 区间");
+    while (true) {
+      const inRange = await checkTimeInRange(page);
+      if (inRange) {
+        await clickByText(page, "停止");
+        break;
+      }
+      await delay(1000);
+    }
+
+    // 4. 等待2秒关闭页面
+    await delay(2000);
+
+  } catch (err) {
+    console.log("⚠️ 本轮异常，自动跳过：", err.message);
+  }
+
+  try { await page.close(); } catch {}
+  console.log("✅ 本轮完成，等待2秒后重启...");
+
+  // 5. 循环
+  await delay(CONFIG.CYCLE_DELAY);
 }
 
-// 主入口：连续跑39轮，轮间休眠2秒
+// 主程序：无限循环
 async function main() {
-  console.log("🔥 批量任务启动，总计执行", CONFIG.TOTAL_ROUND, "轮");
+  console.log("🔥 摸鱼程序已启动：无限自动循环 + 9:00~9:59 精准停止");
+  
   const browser = await puppeteer.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
   });
 
-  // 循环39次
-  for(let i = 1; i <= CONFIG.TOTAL_ROUND; i++){
-    await singleTask(browser, i);
-    // 最后一轮不用等待2秒
-    if(i < CONFIG.TOTAL_ROUND){
-      await delay(CONFIG.ROUND_DELAY);
-    }
+  while (true) {
+    await runCycle(browser);
   }
-
-  await browser.close();
-  console.log("\n🎉 全部39轮任务圆满结束！等待下一个定时时间自动唤醒");
 }
 
-main().catch(err=>{
-  console.error("❌ 全局异常兜底：",err.message);
-  process.exit(1);
-});
-
+main().catch(console.error);
