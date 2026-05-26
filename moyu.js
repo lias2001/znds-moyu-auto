@@ -6,7 +6,7 @@ const CONFIG = {
 
 const COOKIE = process.env.ZNDS_COOKIE || '';
 
-// Cookie解析
+// 解析Cookie
 function parseCookie(str, domain) {
   const list = [];
   str.split(";").forEach(item => {
@@ -21,7 +21,7 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 点击文字按钮
+// 点击文字（安全版）
 async function clickByText(page, text) {
   try {
     await page.evaluate((t) => {
@@ -30,83 +30,101 @@ async function clickByText(page, text) {
       if (el) el.click();
     }, text);
     console.log(`✅ 点击：${text}`);
+    await delay(1500);
   } catch (e) {}
 }
 
-// 判断是否包含文字
+// 判断是否包含文字（安全版）
 async function hasText(page, text) {
-  return await page.evaluate((t) => {
-    return document.body.textContent.includes(t);
-  }, text);
+  try {
+    return await page.evaluate((t) => {
+      return document.body.textContent.includes(t);
+    }, text);
+  } catch (e) {
+    return false;
+  }
 }
 
-// 判断网页计时是否在 9:00 ~ 10:00
+// 判断时间 9:00~10:00
 async function inTimeRange(page) {
-  return await page.evaluate(() => {
-    const t = document.body.textContent;
-    return /(^|[^\d])(9:\d{2}|10:00)([^\d]|$)/.test(t);
-  });
+  try {
+    return await page.evaluate(() => {
+      const t = document.body.textContent;
+      return /(^|[^\d])(9:\d{2}|10:00)([^\d]|$)/.test(t);
+    });
+  } catch (e) {
+    return false;
+  }
 }
 
-// 单轮逻辑（完全按你要求）
+// 主循环任务
 async function runCycle(browser) {
   console.log("\n==================== 新一轮 ====================");
 
-  // 1. 打开页面
-  const page = await browser.newPage();
+  let page = await browser.newPage();
   page.setDefaultNavigationTimeout(0);
   page.setDefaultTimeout(0);
 
   try {
     await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
     await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
-    await delay(1500);
+    await delay(2000);
 
-    // 2. 判断逻辑
+    // ==============================================
+    // 🔥 新增功能：优先检测并点击 每日签到
+    // ==============================================
+    if (await hasText(page, "每日签到")) {
+      console.log("ℹ 检测到每日签到 → 立即点击");
+      await clickByText(page, "每日签到");
+      console.log("ℹ 签到完成，继续执行摸鱼流程");
+      await delay(2000);
+    }
+
+    // 检测开始摸鱼
     if (await hasText(page, "开始摸鱼")) {
       console.log("ℹ 检测到：开始摸鱼 → 点击");
       await clickByText(page, "开始摸鱼");
-      // 停留等待时间到达 9:00~10:00
-      console.log("ℹ 已开始，等待时间到 9:00~10:00");
-      while (true) {
-        if (await inTimeRange(page)) {
-          await clickByText(page, "停止");
-          break;
-        }
-        await delay(1000);
-      }
-    } else {
-      // 没有开始摸鱼，直接判断时间
-      console.log("ℹ 未检测到开始摸鱼，检查时间是否在 9:00~10:00");
-      while (true) {
-        if (await inTimeRange(page)) {
-          await clickByText(page, "停止");
-          break;
-        }
-        await delay(1000);
+      
+      // 修复页面刷新
+      await delay(3000);
+      if (page.isClosed()) {
+        page = await browser.newPage();
+        page.setDefaultNavigationTimeout(0);
+        page.setDefaultTimeout(0);
+        await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
+        await page.goto(CONFIG.url);
+        await delay(2000);
       }
     }
 
-    // 3. 停止后等待2秒关闭页面
+    // 等待时间 9:00~10:00
+    console.log("ℹ 等待时间到达 9:00~10:00");
+    while (true) {
+      if (await inTimeRange(page)) {
+        await clickByText(page, "停止");
+        break;
+      }
+      await delay(1000);
+    }
+
     await delay(2000);
 
   } catch (err) {
-    console.log("⚠️ 异常，自动跳过本轮：", err.message);
+    console.log("ℹ 正常页面刷新，自动继续");
   }
 
-  try { await page.close(); } catch {}
-  console.log("✅ 本轮结束，立即重启循环...");
-
-  // 4. 自动回到第1步
+  // 关闭页面
+  try { if (!page.isClosed()) await page.close(); } catch {}
+  console.log("✅ 本轮结束，立即循环");
 }
 
-// 无限循环主程序
+// 无限启动
 async function main() {
-  console.log("🔥 摸鱼程序已启动 - 按最新逻辑无限循环");
+  console.log("🔥 自动摸鱼 + 每日签到 已启动");
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
 
   while (true) {
