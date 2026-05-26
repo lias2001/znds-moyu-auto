@@ -17,12 +17,12 @@ function parseCookie(str, domain) {
   return list;
 }
 
-// 通用延迟
+// 延迟
 function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 点击包含指定文字的按钮
+// 点击按钮
 async function clickByText(page, text) {
   try {
     await page.evaluate((t) => {
@@ -30,21 +30,22 @@ async function clickByText(page, text) {
       const el = els.find(x => x.textContent.trim().includes(t));
       if (el) el.click();
     }, text);
-    console.log(`✅ 执行：点击 ${text}`);
+    console.log(`✅ 点击：${text}`);
   } catch (e) {}
 }
 
-// 检查是否在 9:00 ~ 9:59 范围内
-async function checkTimeInRange(page) {
+// 检测网页计时：9:00 ~ 10:00
+async function checkPageTimer(page) {
   return await page.evaluate(() => {
     const text = document.body.textContent;
-    return /9:\d{2}/.test(text); // 匹配 9:00 - 9:59
+    // 匹配 9:00 - 9:59 或 10:00
+    return /(^|[^\d])(9:\d{2}|10:00)([^\d]|$)/.test(text);
   });
 }
 
-// 单轮任务
+// 一轮任务流程
 async function runCycle(browser) {
-  console.log("\n--------------------- 开始新一轮 ---------------------");
+  console.log("\n==================== 新一轮摸鱼 ====================");
 
   // 1. 打开页面
   const page = await browser.newPage();
@@ -56,22 +57,22 @@ async function runCycle(browser) {
     await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
     await delay(1500);
 
-    // 2. 识别到“开始摸鱼”就点击
-    console.log("⏳ 等待：开始摸鱼 按钮");
+    // 2. 检测到【开始摸鱼】就点击
+    console.log("⏳ 等待 开始摸鱼 按钮...");
     while (true) {
-      const found = await page.evaluate(() => document.body.textContent.includes("开始摸鱼"));
-      if (found) {
+      const hasStart = await page.evaluate(() => document.body.textContent.includes("开始摸鱼"));
+      if (hasStart) {
         await clickByText(page, "开始摸鱼");
         break;
       }
       await delay(1000);
     }
 
-    // 3. 识别时间在 9:00 ~ 9:59 之间 → 点击停止
-    console.log("⏳ 等待：时间到达 9:00 ~ 9:59 区间");
+    // 3. 监控网页计时 9:00 ~ 10:00 → 停止
+    console.log("⏳ 等待网页计时到 9:00 ~ 10:00...");
     while (true) {
-      const inRange = await checkTimeInRange(page);
-      if (inRange) {
+      const timeOk = await checkPageTimer(page);
+      if (timeOk) {
         await clickByText(page, "停止");
         break;
       }
@@ -86,7 +87,7 @@ async function runCycle(browser) {
   }
 
   try { await page.close(); } catch {}
-  console.log("✅ 本轮完成，等待2秒后重启...");
+  console.log("✅ 本轮完成，2秒后重启...");
 
   // 5. 循环
   await delay(CONFIG.CYCLE_DELAY);
@@ -94,7 +95,7 @@ async function runCycle(browser) {
 
 // 主程序：无限循环
 async function main() {
-  console.log("🔥 摸鱼程序已启动：无限自动循环 + 9:00~9:59 精准停止");
+  console.log("🔥 摸鱼程序启动：无限循环 + 网页计时 9:00~10:00 停止");
   
   const browser = await puppeteer.launch({
     headless: true,
