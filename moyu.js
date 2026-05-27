@@ -73,16 +73,11 @@ async function runCycle(browser) {
     // ==============================================
     // 🔥 新增功能：优先检测并点击 每日签到
     // ==============================================
-    try {
-      const hasCheckin = await page.$('.muanyun-053-action-btn.btn-checkin');
-      if (hasCheckin) {
-        console.log("ℹ 检测到每日签到 → 点击");
-        await page.click('.muanyun-053-action-btn.btn-checkin');
-        console.log("✅ 每日签到 点击成功！");
-        await delay(3000);
-      }
-    } catch (e) {
-      console.log("ℹ 无需签到或已签到");
+    if (await hasText(page, "每日签到")) {
+      console.log("ℹ 检测到每日签到 → 立即点击");
+      await clickByText(page, "每日签到");
+      console.log("ℹ 签到完成，继续执行摸鱼流程");
+      await delay(2000);
     }
 
     // 检测开始摸鱼
