@@ -20,30 +20,6 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 强制等待文字出现
-async function waitForText(page, text) {
-  try {
-    await page.waitForFunction(`document.body.innerText.includes('${text}')`, {
-      timeout: 5000
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// 点击文字
-async function clickText(page, text) {
-  try {
-    await page.evaluate((t) => {
-      const buttons = Array.from(document.querySelectorAll('button, .btn, [type="submit"]'));
-      const btn = buttons.find(b => b.innerText.includes(t));
-      if (btn) btn.click();
-    }, text);
-    console.log(`✅ 点击了：${text}`);
-  } catch (e) {}
-}
-
 // 检查时间 9:xx 或 10:00
 async function checkTime(page) {
   try {
@@ -63,7 +39,7 @@ async function openPage(browser) {
   page.setDefaultTimeout(0);
   await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
   await page.goto(CONFIG.url);
-  await delay(4000); // 强制等页面完全渲染
+  await delay(4000);
   return page;
 }
 
@@ -71,36 +47,33 @@ async function openPage(browser) {
 async function runCycle(browser) {
   console.log("\n==================== 新一轮 ====================");
 
-  // 打开页面
   let page = await openPage(browser);
 
   try {
-    // -------- 1. 先找 每日签到 --------
+    // -------- 1. 每日签到（精准CLASS点击） --------
     console.log("ℹ 检查：每日签到");
-    const foundCheckin = await waitForText(page, "每日签到");
-    if (foundCheckin) {
+    const checkinBtn = await page.$('.muanyun-053-action-btn.btn-checkin');
+    if (checkinBtn) {
       console.log("✅ 找到每日签到，点击！");
-      await clickText(page, "每日签到");
+      await page.click('.muanyun-053-action-btn.btn-checkin');
       await delay(3000);
-      // 刷新页面
-      await page.close().catch(()=>{});
+      await page.close().catch(() => {});
       page = await openPage(browser);
     } else {
-      console.log("ℹ 未找到每日签到");
+      console.log("ℹ 无需签到 / 已签到");
     }
 
-    // -------- 2. 再找 开始摸鱼 --------
+    // -------- 2. 开始摸鱼（精准CLASS点击） --------
     console.log("ℹ 检查：开始摸鱼");
-    const foundStart = await waitForText(page, "开始摸鱼");
-    if (foundStart) {
+    const fishingBtn = await page.$('.muanyun-053-action-btn.btn-fishing');
+    if (fishingBtn) {
       console.log("✅ 找到开始摸鱼，点击！");
-      await clickText(page, "开始摸鱼");
+      await page.click('.muanyun-053-action-btn.btn-fishing');
       await delay(3000);
-      // 刷新页面
-      await page.close().catch(()=>{});
+      await page.close().catch(() => {});
       page = await openPage(browser);
     } else {
-      console.log("ℹ 未找到开始摸鱼");
+      console.log("ℹ 未找到开始摸鱼，已在运行中");
     }
 
     // -------- 3. 等待时间 --------
@@ -108,7 +81,10 @@ async function runCycle(browser) {
     while (true) {
       if (await checkTime(page)) {
         console.log("✅ 时间到，点击停止");
-        await clickText(page, "停止");
+        await page.evaluate(() => {
+          const btns = document.querySelectorAll('button');
+          btns.forEach(b => b.innerText.includes('停止') && b.click());
+        });
         break;
       }
       await delay(1000);
@@ -120,13 +96,13 @@ async function runCycle(browser) {
     console.log("ℹ 流程正常：", err.message);
   }
 
-  try { await page.close().catch(()=>{}); } catch {}
+  try { await page.close().catch(() => {}); } catch {}
   console.log("✅ 本轮结束");
 }
 
 // 启动
 async function main() {
-  console.log("🔥 自动签到+摸鱼 最终稳定版\n");
+  console.log("🔥 自动签到+摸鱼 最终完美版\n");
 
   const browser = await puppeteer.launch({
     headless: true,
