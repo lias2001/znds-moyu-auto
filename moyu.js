@@ -1,107 +1,112 @@
 const puppeteer = require('puppeteer');
 
 const CONFIG = {
-  url: "https://www.znds.com/plugin.php?id=muanyun-053",
+  url: "https://www.znds.com/plugin.php?id=muanyun_053",
 };
 
 const COOKIE = process.env.ZNDS_COOKIE || '';
 
-// 工具函数
+// 解析Cookie
 function parseCookie(str, domain) {
   const list = [];
-  str.split(';').forEach(item => {
-    const [name, ...vs] = item.trim().split('=');
+  str.split(";").forEach(item => {
+    const [name, ...vs] = item.trim().split("=");
     if (name) list.push({ name, value: vs.join('='), domain, path: '/' });
   });
   return list;
 }
 
+// 延迟
 function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 暴力点击文字（无视HTML结构）
-async function clickText(page, text) {
+// 点击文字（安全版）
+async function clickByText(page, text) {
   try {
-    return await page.evaluate((t) => {
-      const all = document.querySelectorAll('*');
-      for (const el of all) {
-        if (el.innerText?.trim().includes(t) && el.tagName !== 'BODY' && el.tagName !== 'HTML') {
-          (el.closest('button') || el).click();
-          return true;
-        }
-      }
-      return false;
+    await page.evaluate((t) => {
+      const els = Array.from(document.querySelectorAll('button, .btn, [type="button"], a'));
+      const el = els.find(x => x.textContent.trim().includes(t));
+      if (el) el.click();
     }, text);
-  } catch {
-    return false;
-  }
+    console.log(`✅ 点击：${text}`);
+    await delay(1500);
+  } catch (e) {}
 }
 
-// 判断是否包含文字
+// 判断是否包含文字（安全版）
 async function hasText(page, text) {
   try {
-    return await page.evaluate((t) => document.body.innerText.includes(t), text);
-  } catch {
+    return await page.evaluate((t) => {
+      return document.body.textContent.includes(t);
+    }, text);
+  } catch (e) {
     return false;
   }
 }
 
-// 打开新页面
-async function newPage(browser) {
-  const page = await browser.newPage();
+// 判断时间 9:00~10:00
+async function inTimeRange(page) {
+  try {
+    return await page.evaluate(() => {
+      const t = document.body.textContent;
+      return /(^|[^\d])(9:\d{2}|10:00)([^\d]|$)/.test(t);
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+// 主循环任务
+async function runCycle(browser) {
+  console.log("\n==================== 新一轮 ====================");
+
+  let page = await browser.newPage();
   page.setDefaultNavigationTimeout(0);
   page.setDefaultTimeout(0);
-  await page.setCookie(...parseCookie(COOKIE, '.znds.com'));
-  await page.goto(CONFIG.url);
-  await delay(4000);
-  return page;
-}
-
-// ====================== 第一轮：只签到 ======================
-async function round1(browser) {
-  console.log("\n==================== 第1轮：每日签到 ====================");
-  let page = await newPage(browser);
 
   try {
-    // 点击签到
-    if (await clickText(page, '每日签到')) {
-      console.log("✅ 已点击每日签到，页面刷新中...");
-      await delay(3500);
-      await page.close();
-      
-      // 重新打开确认是否签到成功
-      page = await newPage(browser);
-      if (await hasText(page, '已签到') || !await hasText(page, '每日签到')) {
-        console.log("✅ 签到完成！第一轮结束");
+    await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
+    await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
+    await delay(2000);
+
+    // ==============================================
+    // 🔥 新增功能：优先检测并点击 每日签到
+    // ==============================================
+    try {
+      const hasCheckin = await page.$('.muanyun-053-action-btn.btn-checkin');
+      if (hasCheckin) {
+        console.log("ℹ 检测到每日签到 → 点击");
+        await page.click('.muanyun-053-action-btn.btn-checkin');
+        console.log("✅ 每日签到 点击成功！");
+        await delay(3000);
       }
-    } else {
-      console.log("ℹ 今日已签到，跳过第一轮");
-    }
-  } catch (e) {}
-
-  try { await page.close(); } catch {}
-  await delay(1000);
-}
-
-// ====================== 第二轮：无限循环摸鱼 ======================
-async function round2(browser) {
-  console.log("\n==================== 循环轮：开始摸鱼 ====================");
-  let page = await newPage(browser);
-
-  try {
-    // 点击开始摸鱼
-    if (await clickText(page, '开始摸鱼')) {
-      console.log("✅ 已点击开始摸鱼，等待计时...");
+    } catch (e) {
+      console.log("ℹ 无需签到或已签到");
     }
 
-    // 等待 9:00 ~ 10:00
-    console.log("ℹ 等待计时到达 9:00~10:00");
+    // 检测开始摸鱼
+    if (await hasText(page, "开始摸鱼")) {
+      console.log("ℹ 检测到：开始摸鱼 → 点击");
+      await clickByText(page, "开始摸鱼");
+      
+      // 修复页面刷新
+      await delay(3000);
+      if (page.isClosed()) {
+        page = await browser.newPage();
+        page.setDefaultNavigationTimeout(0);
+        page.setDefaultTimeout(0);
+        await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
+        await page.goto(CONFIG.url);
+        await delay(2000);
+      }
+    }
+
+    // 等待时间 9:00~10:00
+    console.log("ℹ 等待时间到达 9:00~10:00");
     while (true) {
-      const text = await page.evaluate(() => document.body.innerText);
-      if (/9:\d{2}|10:00/.test(text)) {
-        console.log("✅ 时间到，点击停止");
-        await clickText(page, '停止');
+      if (await inTimeRange(page)) {
+        await clickByText(page, "停止");
         break;
       }
       await delay(1000);
@@ -110,34 +115,26 @@ async function round2(browser) {
     await delay(2000);
 
   } catch (err) {
-    console.log("ℹ 自动修复：", err.message);
+    console.log("ℹ 正常页面刷新，自动继续");
   }
 
-  try { await page.close(); } catch {}
-  console.log("✅ 本轮结束，即将重新开始...");
+  // 关闭页面
+  try { if (!page.isClosed()) await page.close(); } catch {}
+  console.log("✅ 本轮结束，立即循环");
 }
 
-// ====================== 主程序 ======================
+// 无限启动
 async function main() {
-  console.log("🔥 自动签到+摸鱼 已启动（严格两轮逻辑版）");
+  console.log("🔥 自动摸鱼 + 每日签到 已启动");
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-blink-features=AutomationControlled"
-    ]
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
 
-  // 1. 先执行第一轮：签到
-  await round1(browser);
-
-  // 2. 无限循环第二轮：摸鱼
   while (true) {
-    await round2(browser);
+    await runCycle(browser);
   }
 }
 
-main().catch(console.log);
+main().catch(console.error);
