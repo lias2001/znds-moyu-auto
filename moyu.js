@@ -21,7 +21,7 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 点击文字（安全版）
+// 文本点击
 async function clickByText(page, text) {
   try {
     await page.evaluate((t) => {
@@ -34,7 +34,7 @@ async function clickByText(page, text) {
   } catch (e) {}
 }
 
-// 判断是否包含文字（安全版）
+// 判断文字
 async function hasText(page, text) {
   try {
     return await page.evaluate((t) => {
@@ -71,21 +71,25 @@ async function runCycle(browser) {
     await delay(2000);
 
     // ==============================================
-    // 🔥 新增功能：优先检测并点击 每日签到
+    // 🔥 修复：精准点击每日签到按钮（根据你的HTML写死）
     // ==============================================
-    if (await hasText(page, "每日签到")) {
-      console.log("ℹ 检测到每日签到 → 立即点击");
-      await clickByText(page, "每日签到");
-      console.log("ℹ 签到完成，继续执行摸鱼流程");
-      await delay(2000);
+    try {
+      const hasCheckin = await page.$('.muanyun-053-action-btn.btn-checkin');
+      if (hasCheckin) {
+        console.log("ℹ 检测到每日签到 → 点击");
+        await page.click('.muanyun-053-action-btn.btn-checkin');
+        console.log("✅ 每日签到 点击成功！");
+        await delay(3000);
+      }
+    } catch (e) {
+      console.log("ℹ 无需签到或已签到");
     }
 
-    // 检测开始摸鱼
+    // 开始摸鱼
     if (await hasText(page, "开始摸鱼")) {
       console.log("ℹ 检测到：开始摸鱼 → 点击");
       await clickByText(page, "开始摸鱼");
       
-      // 修复页面刷新
       await delay(3000);
       if (page.isClosed()) {
         page = await browser.newPage();
@@ -110,10 +114,9 @@ async function runCycle(browser) {
     await delay(2000);
 
   } catch (err) {
-    console.log("ℹ 正常页面刷新，自动继续");
+    console.log("ℹ 页面正常刷新，自动继续");
   }
 
-  // 关闭页面
   try { if (!page.isClosed()) await page.close(); } catch {}
   console.log("✅ 本轮结束，立即循环");
 }
