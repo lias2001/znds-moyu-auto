@@ -18,6 +18,20 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// 兼容你旧版逻辑：根据文本查找并点击按钮（稳定版）
+async function clickButton(page, text) {
+  try {
+    const btn = await page.$x(`//button[contains(., '${text}')]`);
+    if (btn.length > 0) {
+      await btn[0].click();
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
 // 新建并初始化页面
 async function createPage(browser) {
   const page = await browser.newPage();
@@ -29,7 +43,7 @@ async function createPage(browser) {
   return page;
 }
 
-// 步骤1：签到判断与点击
+// 步骤1：签到检测与点击
 async function doCheckIn(browser) {
   console.log("\n========== 执行签到检测 ==========");
   const page = await createPage(browser);
@@ -52,25 +66,14 @@ async function doCheckIn(browser) {
   console.log("✅ 签到流程结束，关闭页面");
 }
 
-// 步骤2：识别<span>开始摸鱼</span>并点击所属按钮
+// 步骤2：识别并点击 开始摸鱼（沿用旧版可用的文本匹配逻辑）
 async function doStartFish(browser) {
   console.log("\n========== 检测开始摸鱼 ==========");
   const page = await createPage(browser);
 
-  const hasStart = await page.evaluate(() => {
-    const spans = document.querySelectorAll('span');
-    for (const span of spans) {
-      if (span.textContent.trim() === '开始摸鱼') {
-        // 向上找到所属按钮并点击
-        const btn = span.closest('button');
-        if (btn) btn.click();
-        return true;
-      }
-    }
-    return false;
-  });
-
-  if (hasStart) {
+  // 和你旧代码 clickButton 逻辑一致，稳定识别
+  const clicked = await clickButton(page, "开始摸鱼");
+  if (clicked) {
     console.log("✅ 找到【开始摸鱼】并点击");
   } else {
     console.log("ℹ 未识别到【开始摸鱼】");
