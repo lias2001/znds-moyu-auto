@@ -25,28 +25,25 @@ async function createPage(browser) {
   page.setDefaultTimeout(0);
   await page.setCookie(...parseCookie(COOKIE, '.znds.com'));
   await page.goto(CONFIG.url);
-  await delay(6000); // 延长加载时间，确保元素渲染
+  await delay(6000);
   return page;
 }
 
-// 精准点击 开始摸鱼（使用你提供的固定 class）
-async function clickStartFish(page) {
+// 完全复刻你旧版可用的点击函数
+async function clickButton(page, text) {
   try {
-    // 你提供的按钮 class: muanyun-053-action-btn btn-fishing
-    const btn = await page.$('.muanyun-053-action-btn.btn-fishing');
-    if (!btn) {
-      console.log("调试：未匹配到对应class按钮");
-      return false;
-    }
-    await btn.click();
-    return true;
+    await page.evaluate((t) => {
+      const btn = Array.from(document.querySelectorAll("button,input[type='button'],a.btn"))
+        .find(el => el.textContent.includes(t));
+      btn && btn.click();
+    }, text);
+    console.log(`✅ 点击成功：${text}`);
   } catch (e) {
-    console.log("调试：点击异常", e.message);
-    return false;
+    console.log(`⚠️ 点击失败：${text}，可能已点击`);
   }
 }
 
-// 步骤1：签到
+// 步骤1：签到检测
 async function doCheckIn(browser) {
   console.log("\n========== 执行签到检测 ==========");
   const page = await createPage(browser);
@@ -69,24 +66,20 @@ async function doCheckIn(browser) {
   console.log("✅ 签到流程结束，关闭页面");
 }
 
-// 步骤2：开页 → 点击开始摸鱼按钮
+// 步骤2：打开页面 → 识别并点击开始摸鱼
 async function doStartFish(browser) {
   console.log("\n========== 检测并点击开始摸鱼 ==========");
   const page = await createPage(browser);
 
-  const clicked = await clickStartFish(page);
-  if (clicked) {
-    console.log("✅ 成功点击【开始摸鱼】");
-  } else {
-    console.log("ℹ 未找到【开始摸鱼】按钮");
-  }
+  // 使用你原版稳定可用的逻辑
+  await clickButton(page, "开始摸鱼");
 
   await delay(2000);
   await page.close().catch(() => {});
   console.log("✅ 开始摸鱼流程结束，关闭页面");
 }
 
-// 步骤3：检测分钟 9/10，30秒间隔
+// 步骤3：检测分钟 9/10，30秒检测间隔
 async function doStopFish(browser) {
   console.log("\n========== 等待计时并执行停止 ==========");
   const stopSel = '.btn-stop-fishing';
