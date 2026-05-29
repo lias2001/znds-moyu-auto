@@ -18,36 +18,35 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 新建并初始化页面，加长加载时间
+// 新建页面
 async function createPage(browser) {
   const page = await browser.newPage();
   page.setDefaultNavigationTimeout(0);
   page.setDefaultTimeout(0);
   await page.setCookie(...parseCookie(COOKIE, '.znds.com'));
   await page.goto(CONFIG.url);
-  await delay(5000); // 给足时间让所有元素渲染完成
+  await delay(6000); // 延长加载时间，确保元素渲染
   return page;
 }
 
-// 【关键修复】用 XPath 精准定位“开始摸鱼”按钮
+// 精准点击 开始摸鱼（使用你提供的固定 class）
 async function clickStartFish(page) {
   try {
-    // 1. 用 XPath 直接找包含“开始摸鱼”文本的可点击元素
-    const [element] = await page.$x('//*[contains(text(), "开始摸鱼")]');
-    if (!element) {
+    // 你提供的按钮 class: muanyun-053-action-btn btn-fishing
+    const btn = await page.$('.muanyun-053-action-btn.btn-fishing');
+    if (!btn) {
+      console.log("调试：未匹配到对应class按钮");
       return false;
     }
-    // 2. 滚动到元素并点击
-    await element.scrollIntoView();
-    await element.click();
+    await btn.click();
     return true;
   } catch (e) {
-    console.log("点击失败:", e.message);
+    console.log("调试：点击异常", e.message);
     return false;
   }
 }
 
-// 步骤1：签到检测
+// 步骤1：签到
 async function doCheckIn(browser) {
   console.log("\n========== 执行签到检测 ==========");
   const page = await createPage(browser);
@@ -70,14 +69,14 @@ async function doCheckIn(browser) {
   console.log("✅ 签到流程结束，关闭页面");
 }
 
-// 步骤2：打开页面 → 用 XPath 定位并点击“开始摸鱼”
+// 步骤2：开页 → 点击开始摸鱼按钮
 async function doStartFish(browser) {
   console.log("\n========== 检测并点击开始摸鱼 ==========");
   const page = await createPage(browser);
 
   const clicked = await clickStartFish(page);
   if (clicked) {
-    console.log("✅ 成功识别并点击了【开始摸鱼】");
+    console.log("✅ 成功点击【开始摸鱼】");
   } else {
     console.log("ℹ 未找到【开始摸鱼】按钮");
   }
@@ -87,7 +86,7 @@ async function doStartFish(browser) {
   console.log("✅ 开始摸鱼流程结束，关闭页面");
 }
 
-// 步骤3：检测分钟数（9/10），间隔30秒
+// 步骤3：检测分钟 9/10，30秒间隔
 async function doStopFish(browser) {
   console.log("\n========== 等待计时并执行停止 ==========");
   const stopSel = '.btn-stop-fishing';
@@ -130,10 +129,8 @@ async function main() {
     ]
   });
 
-  // 仅执行一次签到
   await doCheckIn(browser);
 
-  // 无限循环：步骤2 + 步骤3
   while (true) {
     await doStartFish(browser);
     await doStopFish(browser);
