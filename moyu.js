@@ -18,32 +18,35 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 兼容你旧版逻辑：根据文本查找并点击按钮（稳定版）
-async function clickButton(page, text) {
-  try {
-    const btn = await page.$x(`//button[contains(., '${text}')]`);
-    if (btn.length > 0) {
-      await btn[0].click();
-      return true;
-    }
-    return false;
-  } catch (e) {
-    return false;
-  }
-}
-
-// 新建并初始化页面
+// 新建并初始化页面，加长加载等待
 async function createPage(browser) {
   const page = await browser.newPage();
   page.setDefaultNavigationTimeout(0);
   page.setDefaultTimeout(0);
   await page.setCookie(...parseCookie(COOKIE, '.znds.com'));
   await page.goto(CONFIG.url);
-  await delay(3000);
+  await delay(5000); // 延长至5秒，确保异步元素完全渲染
   return page;
 }
 
-// 步骤1：签到检测与点击
+// 精准查找包含指定文本的按钮（还原旧版可用逻辑）
+async function clickBtnByText(page, text) {
+  try {
+    const buttons = await page.$$('button');
+    for (const btn of buttons) {
+      const txt = await btn.evaluate(el => el.textContent.trim());
+      if (txt.includes(text)) {
+        await btn.click();
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// 步骤1：签到检测
 async function doCheckIn(browser) {
   console.log("\n========== 执行签到检测 ==========");
   const page = await createPage(browser);
@@ -59,36 +62,36 @@ async function doCheckIn(browser) {
   } else {
     console.log("✅ 签到按钮可点击，执行签到");
     await page.click(checkinSel);
-    await delay(2000);
+    await delay(4000);
   }
 
   await page.close().catch(() => {});
   console.log("✅ 签到流程结束，关闭页面");
 }
 
-// 步骤2：识别并点击 开始摸鱼（沿用旧版可用的文本匹配逻辑）
+// 步骤2：识别并点击 开始摸鱼
 async function doStartFish(browser) {
   console.log("\n========== 检测开始摸鱼 ==========");
   const page = await createPage(browser);
 
-  // 和你旧代码 clickButton 逻辑一致，稳定识别
-  const clicked = await clickButton(page, "开始摸鱼");
+  const clicked = await clickBtnByText(page, "开始摸鱼");
   if (clicked) {
     console.log("✅ 找到【开始摸鱼】并点击");
   } else {
     console.log("ℹ 未识别到【开始摸鱼】");
   }
 
-  await delay(2000);
+  await delay(4000);
   await page.close().catch(() => {});
   console.log("✅ 开始摸鱼流程结束，关闭页面");
 }
 
-// 步骤3：等待分钟为9/10，点击停止按钮
+// 步骤3：检测分钟数(9/10)，检测间隔改为30秒
 async function doStopFish(browser) {
   console.log("\n========== 等待计时并执行停止 ==========");
   const stopSel = '.btn-stop-fishing';
   const minuteId = 'timer-minutes';
+  const checkInterval = 30000; // 30秒检测一次
 
   while (true) {
     const page = await createPage(browser);
@@ -105,9 +108,9 @@ async function doStopFish(browser) {
       console.log("✅ 停止流程结束，关闭页面");
       break;
     } else {
-      console.log(`ℹ 当前分钟数：${minuteVal}，继续等待...`);
+      console.log(`ℹ 当前分钟数：${minuteVal}，30秒后再次检测...`);
       await page.close().catch(() => {});
-      await delay(1000);
+      await delay(checkInterval); // 等待30秒再重试
     }
   }
 }
