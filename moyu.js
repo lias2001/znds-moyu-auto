@@ -22,7 +22,7 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 新建并初始化页面
+// 创建并初始化页面
 async function createPage(browser) {
   const page = await browser.newPage();
   page.setDefaultNavigationTimeout(0);
@@ -33,23 +33,22 @@ async function createPage(browser) {
   return page;
 }
 
-// 步骤1：签到判断与执行
+// 步骤1：签到检测与点击
 async function doCheckIn(browser) {
   console.log("\n========== 执行签到检测 ==========");
   const page = await createPage(browser);
 
-  // 判断按钮是否被禁用（存在 disabled 属性）
-  const isDisabled = await page.evaluate(() => {
-    const btn = document.querySelector('.muanyun-053-action-btn.btn-checkin');
-    if (!btn) return true;
-    return btn.disabled;
-  });
+  const checkinSel = '.muanyun-053-action-btn.btn-checkin';
+  const isDisabled = await page.evaluate((sel) => {
+    const btn = document.querySelector(sel);
+    return btn ? btn.disabled : true;
+  }, checkinSel);
 
   if (isDisabled) {
     console.log("ℹ 今日已签到，按钮不可点击");
   } else {
     console.log("✅ 签到按钮可点击，执行签到");
-    await page.click('.muanyun-053-action-btn.btn-checkin');
+    await page.click(checkinSel);
     await delay(2000);
   }
 
@@ -61,27 +60,12 @@ async function doCheckIn(browser) {
 async function doStartFish(browser) {
   console.log("\n========== 检测开始摸鱼 ==========");
   const page = await createPage(browser);
+  const startSel = '.muanyun-053-action-btn.btn-fishing';
 
-  // 查找开始摸鱼按钮
-  const hasStartBtn = await page.evaluate(() => {
-    const allBtns = document.querySelectorAll('button');
-    for (const btn of allBtns) {
-      if (btn.innerText.includes('开始摸鱼')) return true;
-    }
-    return false;
-  });
-
+  const hasStartBtn = await page.$(startSel);
   if (hasStartBtn) {
     console.log("✅ 找到开始摸鱼，执行点击");
-    await page.evaluate(() => {
-      const allBtns = document.querySelectorAll('button');
-      for (const btn of allBtns) {
-        if (btn.innerText.includes('开始摸鱼')) {
-          btn.click();
-          break;
-        }
-      }
-    });
+    await page.click(startSel);
   } else {
     console.log("ℹ 未找到开始摸鱼按钮");
   }
@@ -91,40 +75,38 @@ async function doStartFish(browser) {
   console.log("✅ 开始摸鱼流程结束，关闭页面");
 }
 
-// 步骤3：检测计时分钟(9/10)并点击停止
+// 步骤3：等待分钟为9/10，点击停止
 async function doStopFish(browser) {
-  console.log("\n========== 检测计时并停止 ==========");
-  const page = await createPage(browser);
+  console.log("\n========== 等待计时并执行停止 ==========");
+  const stopSel = '.btn-stop-fishing';
+  const minuteId = 'timer-minutes';
 
-  // 读取 id="timer-minutes" 的分钟数
-  const minuteVal = await page.evaluate(() => {
-    const el = document.getElementById('timer-minutes');
-    return el ? el.textContent.trim() : '';
-  });
+  while (true) {
+    const page = await createPage(browser);
+    // 获取分钟数
+    const minuteVal = await page.evaluate((id) => {
+      const el = document.getElementById(id);
+      return el ? el.textContent.trim() : '';
+    }, minuteId);
 
-  if (minuteVal === '9' || minuteVal === '10') {
-    console.log(`✅ 检测到分钟数：${minuteVal}，执行停止`);
-    // 点击停止按钮
-    await page.evaluate(() => {
-      const allBtns = document.querySelectorAll('button');
-      for (const btn of allBtns) {
-        if (btn.innerText.includes('停止')) {
-          btn.click();
-          break;
-        }
-      }
-    });
-  } else {
-    console.log(`ℹ 当前分钟数：${minuteVal}，未到停止条件`);
+    if (minuteVal === '9' || minuteVal === '10') {
+      console.log(`✅ 检测到分钟数：${minuteVal}，执行停止`);
+      await page.click(stopSel);
+      await delay(2000);
+      await page.close().catch(() => {});
+      console.log("✅ 停止流程结束，关闭页面");
+      break;
+    } else {
+      console.log(`ℹ 当前分钟数：${minuteVal}，继续等待...`);
+      await page.close().catch(() => {});
+      await delay(1000);
+    }
   }
-
-  await page.close().catch(() => {});
-  console.log("✅ 停止流程结束，关闭页面");
 }
 
-// 主入口
+// 主程序
 async function main() {
-  console.log("🔥 脚本启动：签到 + 摸鱼循环流程");
+  console.log("🔥 脚本启动：签到 + 循环摸鱼流程");
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -136,7 +118,7 @@ async function main() {
     ]
   });
 
-  // 1. 先执行一次签到流程
+  // 1. 仅执行一次签到
   await doCheckIn(browser);
 
   // 2. 无限循环 步骤2 + 步骤3
