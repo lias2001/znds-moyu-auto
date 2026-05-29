@@ -29,32 +29,20 @@ async function createPage(browser) {
   return page;
 }
 
-// 通用：识别包含指定文本的元素并点击（不限定是button）
-async function clickElementByText(page, text) {
+// 【关键修复】用 XPath 精准定位“开始摸鱼”按钮
+async function clickStartFish(page) {
   try {
-    // 1. 先检查页面有没有这个文字
-    const has = await page.evaluate(t => document.body.innerText.includes(t), text);
-    if (!has) return false;
-
-    // 2. 找到包含该文本的元素，自动追溯到可点击的父元素
-    return await page.evaluate(t => {
-      const elements = document.querySelectorAll('*');
-      for (const el of elements) {
-        if (el.innerText?.trim() === t) {
-          // 往上找可点击的父级（a、button、div[onclick]等）
-          let target = el;
-          while (target && !['A', 'BUTTON'].includes(target.tagName) && !target.onclick) {
-            target = target.parentElement;
-          }
-          if (target) {
-            target.click();
-            return true;
-          }
-        }
-      }
+    // 1. 用 XPath 直接找包含“开始摸鱼”文本的可点击元素
+    const [element] = await page.$x('//*[contains(text(), "开始摸鱼")]');
+    if (!element) {
       return false;
-    }, text);
-  } catch {
+    }
+    // 2. 滚动到元素并点击
+    await element.scrollIntoView();
+    await element.click();
+    return true;
+  } catch (e) {
+    console.log("点击失败:", e.message);
     return false;
   }
 }
@@ -82,17 +70,16 @@ async function doCheckIn(browser) {
   console.log("✅ 签到流程结束，关闭页面");
 }
 
-// 步骤2：打开页面 → 识别“开始摸鱼”文字 → 点击
+// 步骤2：打开页面 → 用 XPath 定位并点击“开始摸鱼”
 async function doStartFish(browser) {
   console.log("\n========== 检测并点击开始摸鱼 ==========");
   const page = await createPage(browser);
-  const targetText = "开始摸鱼";
 
-  const clicked = await clickElementByText(page, targetText);
+  const clicked = await clickStartFish(page);
   if (clicked) {
     console.log("✅ 成功识别并点击了【开始摸鱼】");
   } else {
-    console.log("ℹ 页面中未找到【开始摸鱼】文字");
+    console.log("ℹ 未找到【开始摸鱼】按钮");
   }
 
   await delay(2000);
