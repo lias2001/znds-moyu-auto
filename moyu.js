@@ -1,135 +1,120 @@
 const puppeteer = require('puppeteer');
 
 const CONFIG = {
-  url: "https://www.znds.com/plugin.php?id=muanyun-053"
+  url: "https://www.znds.com/plugin.php?id=muanyun_053",
 };
+
 const COOKIE = process.env.ZNDS_COOKIE || '';
 
 function parseCookie(str, domain) {
   const list = [];
-  str.split(';').forEach(item => {
-    const [name, ...vs] = item.trim().split('=');
+  str.split(";").forEach(item => {
+    const [name, ...vs] = item.trim().split("=");
     if (name) list.push({ name, value: vs.join('='), domain, path: '/' });
   });
   return list;
 }
 
 function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise(r => setTimeout(r, ms));
 }
 
-// 新建页面
-async function createPage(browser) {
-  const page = await browser.newPage();
-  page.setDefaultNavigationTimeout(0);
-  page.setDefaultTimeout(0);
-  await page.setCookie(...parseCookie(COOKIE, '.znds.com'));
-  await page.goto(CONFIG.url);
-  await delay(6000);
-  return page;
-}
-
-// 完全复刻你旧版可用的点击函数
-async function clickButton(page, text) {
+async function clickByText(page, text) {
   try {
     await page.evaluate((t) => {
-      const btn = Array.from(document.querySelectorAll("button,input[type='button'],a.btn"))
-        .find(el => el.textContent.includes(t));
-      btn && btn.click();
+      const els = Array.from(document.querySelectorAll('button, .btn, [type="button"], a'));
+      const el = els.find(x => x.textContent.trim().includes(t));
+      if (el) el.click();
     }, text);
-    console.log(`✅ 点击成功：${text}`);
+    console.log(`✅ 点击：${text}`);
+  } catch (e) {}
+}
+
+async function hasText(page, text) {
+  try {
+    return await page.evaluate((t) => {
+      return document.body.textContent.includes(t);
+    }, text);
   } catch (e) {
-    console.log(`⚠️ 点击失败：${text}，可能已点击`);
+    return false;
   }
 }
 
-// 步骤1：签到检测
-async function doCheckIn(browser) {
-  console.log("\n========== 执行签到检测 ==========");
-  const page = await createPage(browser);
-  const checkinSel = '.muanyun-053-action-btn.btn-checkin';
-
-  const isDisabled = await page.evaluate(sel => {
-    const btn = document.querySelector(sel);
-    return btn ? btn.disabled : true;
-  }, checkinSel);
-
-  if (isDisabled) {
-    console.log("ℹ 今日已签到，按钮不可点击");
-  } else {
-    console.log("✅ 签到按钮可点击，执行签到");
-    await page.click(checkinSel);
-    await delay(2000);
+async function inTimeRange(page) {
+  try {
+    return await page.evaluate(() => {
+      const t = document.body.textContent;
+      return /(^|[^\d])(9:\d{2}|10:00)([^\d]|$)/.test(t);
+    });
+  } catch (e) {
+    return false;
   }
-
-  await page.close().catch(() => {});
-  console.log("✅ 签到流程结束，关闭页面");
 }
 
-// 步骤2：打开页面 → 识别并点击开始摸鱼
-async function doStartFish(browser) {
-  console.log("\n========== 检测并点击开始摸鱼 ==========");
-  const page = await createPage(browser);
+// 核心修复：点击开始摸鱼后，页面刷新，重新等待并检测
+async function runCycle(browser) {
+  console.log("\n==================== 新一轮 ====================");
 
-  // 使用你原版稳定可用的逻辑
-  await clickButton(page, "开始摸鱼");
+  let page = await browser.newPage();
+  page.setDefaultNavigationTimeout(0);
+  page.setDefaultTimeout(0);
 
-  await delay(2000);
-  await page.close().catch(() => {});
-  console.log("✅ 开始摸鱼流程结束，关闭页面");
-}
+  try {
+    await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
+    await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
+    await delay(1500);
 
-// 步骤3：检测分钟 9/10，30秒检测间隔
-async function doStopFish(browser) {
-  console.log("\n========== 等待计时并执行停止 ==========");
-  const stopSel = '.btn-stop-fishing';
-  const minuteId = 'timer-minutes';
-  const checkInterval = 30000;
+    // 有开始摸鱼就点，点完页面会刷新
+    if (await hasText(page, "开始摸鱼")) {
+      console.log("ℹ 检测到：开始摸鱼 → 点击");
+      await clickByText(page, "开始摸鱼");
 
-  while (true) {
-    const page = await createPage(browser);
-    const minuteVal = await page.evaluate(id => {
-      const el = document.getElementById(id);
-      return el ? el.textContent.trim() : '';
-    }, minuteId);
+      // 🔥 关键修复：点击后页面刷新，重新等待页面加载
+      console.log("ℹ 页面可能刷新，等待重新加载...");
+      await delay(3000);
 
-    if (minuteVal === '9' || minuteVal === '10') {
-      console.log(`✅ 检测到分钟数：${minuteVal}，点击停止`);
-      await page.click(stopSel);
-      await delay(2000);
-      await page.close().catch(() => {});
-      console.log("✅ 停止流程结束，关闭页面");
-      break;
-    } else {
-      console.log(`ℹ 当前分钟数：${minuteVal}，30秒后再次检测...`);
-      await page.close().catch(() => {});
-      await delay(checkInterval);
+      // 重新判断页面是否还存在，不存在就新建
+      if (!page || page.isClosed()) {
+        page = await browser.newPage();
+        page.setDefaultNavigationTimeout(0);
+        page.setDefaultTimeout(0);
+        await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
+        await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
+        await delay(2000);
+      }
     }
+
+    // 统一等待时间 9:00~10:00
+    console.log("ℹ 等待时间到达 9:00~10:00 并停止");
+    while (true) {
+      if (await inTimeRange(page)) {
+        await clickByText(page, "停止");
+        break;
+      }
+      await delay(1000);
+    }
+
+    await delay(2000);
+
+  } catch (err) {
+    console.log("ℹ 页面正常刷新，自动继续：", err.message);
   }
+
+  try { if (!page.isClosed()) await page.close(); } catch {}
+  console.log("✅ 本轮结束，立即重启循环...");
 }
 
-// 主程序
 async function main() {
-  console.log("🔥 脚本启动：签到 + 循环摸鱼流程");
+  console.log("🔥 摸鱼程序已启动 - 防崩溃稳定版");
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-blink-features=AutomationControlled'
-    ]
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
 
-  await doCheckIn(browser);
-
   while (true) {
-    await doStartFish(browser);
-    await doStopFish(browser);
+    await runCycle(browser);
   }
 }
 
-main().catch(err => {
-  console.error("❌ 脚本异常：", err.message);
-});
+main().catch(console.error);
