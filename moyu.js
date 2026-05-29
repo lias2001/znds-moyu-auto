@@ -1,135 +1,151 @@
 const puppeteer = require('puppeteer');
 
 const CONFIG = {
-  url: "https://www.znds.com/plugin.php?id=muanyun_053",
+  url: "https://www.znds.com/plugin.php?id=muanyun-053"
 };
-
 const COOKIE = process.env.ZNDS_COOKIE || '';
 
 // 解析Cookie
 function parseCookie(str, domain) {
   const list = [];
-  str.split(";").forEach(item => {
-    const [name, ...vs] = item.trim().split("=");
-    if (name) list.push({ name, value: vs.join('='), domain, path: '/' });
+  str.split(';').forEach(item => {
+    const [name, ...vs] = item.trim().split('=');
+    if (name) {
+      list.push({ name, value: vs.join('='), domain, path: '/' });
+    }
   });
   return list;
 }
 
-// 延迟
+// 延时
 function delay(ms) {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 点击文字（安全版）
-async function clickByText(page, text) {
-  try {
-    await page.evaluate((t) => {
-      const els = Array.from(document.querySelectorAll('button, .btn, [type="button"], a'));
-      const el = els.find(x => x.textContent.trim().includes(t));
-      if (el) el.click();
-    }, text);
-    console.log(`✅ 点击：${text}`);
-    await delay(1500);
-  } catch (e) {}
-}
-
-// 判断是否包含文字（安全版）
-async function hasText(page, text) {
-  try {
-    return await page.evaluate((t) => {
-      return document.body.textContent.includes(t);
-    }, text);
-  } catch (e) {
-    return false;
-  }
-}
-
-// 判断时间 9:00~10:00
-async function inTimeRange(page) {
-  try {
-    return await page.evaluate(() => {
-      const t = document.body.textContent;
-      return /(^|[^\d])(9:\d{2}|10:00)([^\d]|$)/.test(t);
-    });
-  } catch (e) {
-    return false;
-  }
-}
-
-// 主循环任务
-async function runCycle(browser) {
-  console.log("\n==================== 新一轮 ====================");
-
-  let page = await browser.newPage();
+// 新建并初始化页面
+async function createPage(browser) {
+  const page = await browser.newPage();
   page.setDefaultNavigationTimeout(0);
   page.setDefaultTimeout(0);
-
-  try {
-    await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
-    await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
-    await delay(2000);
-
-    // ==============================================
-    // 🔥 新增功能：优先检测并点击 每日签到
-    // ==============================================
-    if (await hasText(page, "每日签到")) {
-      console.log("ℹ 检测到每日签到 → 立即点击");
-      await clickByText(page, "每日签到");
-      console.log("ℹ 签到完成，继续执行摸鱼流程");
-      await delay(2000);
-    }
-
-    // 检测开始摸鱼
-    if (await hasText(page, "开始摸鱼")) {
-      console.log("ℹ 检测到：开始摸鱼 → 点击");
-      await clickByText(page, "开始摸鱼");
-      
-      // 修复页面刷新
-      await delay(3000);
-      if (page.isClosed()) {
-        page = await browser.newPage();
-        page.setDefaultNavigationTimeout(0);
-        page.setDefaultTimeout(0);
-        await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
-        await page.goto(CONFIG.url);
-        await delay(2000);
-      }
-    }
-
-    // 等待时间 9:00~10:00
-    console.log("ℹ 等待时间到达 9:00~10:00");
-    while (true) {
-      if (await inTimeRange(page)) {
-        await clickByText(page, "停止");
-        break;
-      }
-      await delay(1000);
-    }
-
-    await delay(2000);
-
-  } catch (err) {
-    console.log("ℹ 正常页面刷新，自动继续");
-  }
-
-  // 关闭页面
-  try { if (!page.isClosed()) await page.close(); } catch {}
-  console.log("✅ 本轮结束，立即循环");
+  await page.setCookie(...parseCookie(COOKIE, '.znds.com'));
+  await page.goto(CONFIG.url);
+  await delay(3000);
+  return page;
 }
 
-// 无限启动
+// 步骤1：签到判断与执行
+async function doCheckIn(browser) {
+  console.log("\n========== 执行签到检测 ==========");
+  const page = await createPage(browser);
+
+  // 判断按钮是否被禁用（存在 disabled 属性）
+  const isDisabled = await page.evaluate(() => {
+    const btn = document.querySelector('.muanyun-053-action-btn.btn-checkin');
+    if (!btn) return true;
+    return btn.disabled;
+  });
+
+  if (isDisabled) {
+    console.log("ℹ 今日已签到，按钮不可点击");
+  } else {
+    console.log("✅ 签到按钮可点击，执行签到");
+    await page.click('.muanyun-053-action-btn.btn-checkin');
+    await delay(2000);
+  }
+
+  await page.close().catch(() => {});
+  console.log("✅ 签到流程结束，关闭页面");
+}
+
+// 步骤2：检测并点击开始摸鱼
+async function doStartFish(browser) {
+  console.log("\n========== 检测开始摸鱼 ==========");
+  const page = await createPage(browser);
+
+  // 查找开始摸鱼按钮
+  const hasStartBtn = await page.evaluate(() => {
+    const allBtns = document.querySelectorAll('button');
+    for (const btn of allBtns) {
+      if (btn.innerText.includes('开始摸鱼')) return true;
+    }
+    return false;
+  });
+
+  if (hasStartBtn) {
+    console.log("✅ 找到开始摸鱼，执行点击");
+    await page.evaluate(() => {
+      const allBtns = document.querySelectorAll('button');
+      for (const btn of allBtns) {
+        if (btn.innerText.includes('开始摸鱼')) {
+          btn.click();
+          break;
+        }
+      }
+    });
+  } else {
+    console.log("ℹ 未找到开始摸鱼按钮");
+  }
+
+  await delay(2000);
+  await page.close().catch(() => {});
+  console.log("✅ 开始摸鱼流程结束，关闭页面");
+}
+
+// 步骤3：检测计时分钟(9/10)并点击停止
+async function doStopFish(browser) {
+  console.log("\n========== 检测计时并停止 ==========");
+  const page = await createPage(browser);
+
+  // 读取 id="timer-minutes" 的分钟数
+  const minuteVal = await page.evaluate(() => {
+    const el = document.getElementById('timer-minutes');
+    return el ? el.textContent.trim() : '';
+  });
+
+  if (minuteVal === '9' || minuteVal === '10') {
+    console.log(`✅ 检测到分钟数：${minuteVal}，执行停止`);
+    // 点击停止按钮
+    await page.evaluate(() => {
+      const allBtns = document.querySelectorAll('button');
+      for (const btn of allBtns) {
+        if (btn.innerText.includes('停止')) {
+          btn.click();
+          break;
+        }
+      }
+    });
+  } else {
+    console.log(`ℹ 当前分钟数：${minuteVal}，未到停止条件`);
+  }
+
+  await page.close().catch(() => {});
+  console.log("✅ 停止流程结束，关闭页面");
+}
+
+// 主入口
 async function main() {
-  console.log("🔥 自动摸鱼 + 每日签到 已启动");
+  console.log("🔥 脚本启动：签到 + 摸鱼循环流程");
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-blink-features=AutomationControlled'
+    ]
   });
 
+  // 1. 先执行一次签到流程
+  await doCheckIn(browser);
+
+  // 2. 无限循环 步骤2 + 步骤3
   while (true) {
-    await runCycle(browser);
+    await doStartFish(browser);
+    await doStopFish(browser);
   }
 }
 
-main().catch(console.error);
+main().catch(err => {
+  console.error("❌ 脚本异常：", err.message);
+});
