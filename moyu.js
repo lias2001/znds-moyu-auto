@@ -5,24 +5,20 @@ const CONFIG = {
 };
 const COOKIE = process.env.ZNDS_COOKIE || '';
 
-// 解析Cookie
 function parseCookie(str, domain) {
   const list = [];
   str.split(';').forEach(item => {
     const [name, ...vs] = item.trim().split('=');
-    if (name) {
-      list.push({ name, value: vs.join('='), domain, path: '/' });
-    }
+    if (name) list.push({ name, value: vs.join('='), domain, path: '/' });
   });
   return list;
 }
 
-// 延时
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 创建并初始化页面
+// 新建并初始化页面
 async function createPage(browser) {
   const page = await browser.newPage();
   page.setDefaultNavigationTimeout(0);
@@ -33,13 +29,13 @@ async function createPage(browser) {
   return page;
 }
 
-// 步骤1：签到检测与点击
+// 步骤1：签到判断与点击
 async function doCheckIn(browser) {
   console.log("\n========== 执行签到检测 ==========");
   const page = await createPage(browser);
-
   const checkinSel = '.muanyun-053-action-btn.btn-checkin';
-  const isDisabled = await page.evaluate((sel) => {
+
+  const isDisabled = await page.evaluate(sel => {
     const btn = document.querySelector(sel);
     return btn ? btn.disabled : true;
   }, checkinSel);
@@ -56,18 +52,28 @@ async function doCheckIn(browser) {
   console.log("✅ 签到流程结束，关闭页面");
 }
 
-// 步骤2：检测并点击开始摸鱼
+// 步骤2：识别<span>开始摸鱼</span>并点击所属按钮
 async function doStartFish(browser) {
   console.log("\n========== 检测开始摸鱼 ==========");
   const page = await createPage(browser);
-  const startSel = '.muanyun-053-action-btn.btn-fishing';
 
-  const hasStartBtn = await page.$(startSel);
-  if (hasStartBtn) {
-    console.log("✅ 找到开始摸鱼，执行点击");
-    await page.click(startSel);
+  const hasStart = await page.evaluate(() => {
+    const spans = document.querySelectorAll('span');
+    for (const span of spans) {
+      if (span.textContent.trim() === '开始摸鱼') {
+        // 向上找到所属按钮并点击
+        const btn = span.closest('button');
+        if (btn) btn.click();
+        return true;
+      }
+    }
+    return false;
+  });
+
+  if (hasStart) {
+    console.log("✅ 找到【开始摸鱼】并点击");
   } else {
-    console.log("ℹ 未找到开始摸鱼按钮");
+    console.log("ℹ 未识别到【开始摸鱼】");
   }
 
   await delay(2000);
@@ -75,7 +81,7 @@ async function doStartFish(browser) {
   console.log("✅ 开始摸鱼流程结束，关闭页面");
 }
 
-// 步骤3：等待分钟为9/10，点击停止
+// 步骤3：等待分钟为9/10，点击停止按钮
 async function doStopFish(browser) {
   console.log("\n========== 等待计时并执行停止 ==========");
   const stopSel = '.btn-stop-fishing';
@@ -83,14 +89,13 @@ async function doStopFish(browser) {
 
   while (true) {
     const page = await createPage(browser);
-    // 获取分钟数
-    const minuteVal = await page.evaluate((id) => {
+    const minuteVal = await page.evaluate(id => {
       const el = document.getElementById(id);
       return el ? el.textContent.trim() : '';
     }, minuteId);
 
     if (minuteVal === '9' || minuteVal === '10') {
-      console.log(`✅ 检测到分钟数：${minuteVal}，执行停止`);
+      console.log(`✅ 检测到分钟数：${minuteVal}，点击停止`);
       await page.click(stopSel);
       await delay(2000);
       await page.close().catch(() => {});
@@ -118,10 +123,10 @@ async function main() {
     ]
   });
 
-  // 1. 仅执行一次签到
+  // 仅执行一次签到
   await doCheckIn(browser);
 
-  // 2. 无限循环 步骤2 + 步骤3
+  // 无限循环 步骤2 + 步骤3
   while (true) {
     await doStartFish(browser);
     await doStopFish(browser);
