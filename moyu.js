@@ -51,7 +51,6 @@ async function inTimeRange(page) {
   }
 }
 
-// 核心修复：点击开始摸鱼后，页面刷新，重新等待并检测
 async function runCycle(browser) {
   console.log("\n==================== 新一轮 ====================");
 
@@ -83,18 +82,29 @@ async function runCycle(browser) {
       }
     }
 
-    console.log("ℹ 等待时间到达 9:00~10:00 并停止，每分钟轮询检查开始摸鱼");
-    let checkCount = 0;
+    console.log("ℹ 持续检测【开始摸鱼】，到达指定时段自动停止");
     while (true) {
-      // 每累计60次(1s*60=1分钟)检测一次开始摸鱼
-      checkCount++;
-      if (checkCount >= 60) {
-        checkCount = 0;
-        console.log("ℹ 每分钟轮询：检查是否存在【开始摸鱼】");
-        
-        // 先判断页面状态，失效则重建
+      // 页面失效则重建
+      if (!page || page.isClosed()) {
+        console.log("ℹ 页面已关闭/失效，重新创建页面并加载");
+        page = await browser.newPage();
+        page.setDefaultNavigationTimeout(0);
+        page.setDefaultTimeout(0);
+        await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
+        await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
+        await delay(2000);
+      }
+
+      // 检测到开始摸鱼，直接点击（和初始逻辑完全一致）
+      if (await hasText(page, "开始摸鱼")) {
+        console.log("ℹ 检测到【开始摸鱼】，执行点击");
+        await clickByText(page, "开始摸鱼");
+        console.log("ℹ 页面可能刷新，等待重新加载...");
+        await delay(3000);
+
+        // 刷新后页面失效则重建
         if (!page || page.isClosed()) {
-          console.log("ℹ 页面已关闭/失效，重新创建页面并加载");
+          console.log("ℹ 页面刷新后关闭，重新创建页面");
           page = await browser.newPage();
           page.setDefaultNavigationTimeout(0);
           page.setDefaultTimeout(0);
@@ -102,28 +112,9 @@ async function runCycle(browser) {
           await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
           await delay(2000);
         }
-
-        // 检测并点击开始摸鱼
-        if (await hasText(page, "开始摸鱼")) {
-          console.log("ℹ 轮询发现【开始摸鱼】，执行点击");
-          await clickByText(page, "开始摸鱼");
-          console.log("ℹ 点击后等待页面刷新...");
-          await delay(3000);
-
-          // 刷新后再次校验页面，失效则重建
-          if (!page || page.isClosed()) {
-            console.log("ℹ 页面刷新后关闭，重新创建页面");
-            page = await browser.newPage();
-            page.setDefaultNavigationTimeout(0);
-            page.setDefaultTimeout(0);
-            await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
-            await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
-            await delay(2000);
-          }
-        }
       }
 
-      // 判断是否到指定时段，到了就点击停止并退出循环
+      // 判断是否到指定时段，到了点击停止并退出循环
       if (await inTimeRange(page)) {
         await clickByText(page, "停止");
         break;
@@ -143,7 +134,7 @@ async function runCycle(browser) {
 }
 
 async function main() {
-  console.log("🔥 摸鱼程序已启动 - 每分钟轮询增强版");
+  console.log("🔥 摸鱼程序已启动 - 持续检测版");
 
   const browser = await puppeteer.launch({
     headless: true,
