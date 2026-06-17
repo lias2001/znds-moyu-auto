@@ -148,7 +148,7 @@ async function runCycle(browser) {
       }
     }
 
-    // 第二步：固定继续识别 开始摸鱼
+    // 第二步：识别 开始摸鱼
     let hasStartFish = false;
     const startPos = await getValidElemPos(page, "开始摸鱼");
     if (startPos) {
@@ -163,29 +163,26 @@ async function runCycle(browser) {
       console.log("ℹ 未检测到有效【开始摸鱼】");
     }
 
-    // 第三步：签到、开始摸鱼都没识别到，读取并判断计时器
-    if (!hasSign && !hasStartFish) {
-      const minute = await page.evaluate(() => {
-        const minEl = document.getElementById('timer-minutes');
-        return minEl ? minEl.textContent.trim() : '';
-      });
-      // 打印当前计时器分钟数
-      console.log(`ℹ 当前计时器分钟数：${minute}`);
+    // 第三步：【每一轮都执行】读取计时器并判断停止按钮（移除前置条件）
+    const minute = await page.evaluate(() => {
+      const minEl = document.getElementById('timer-minutes');
+      return minEl ? minEl.textContent.trim() : '';
+    });
+    console.log(`ℹ 当前计时器分钟数：${minute}`);
 
-      if (minute === "9" || minute === "10") {
-        const stopPos = await getValidElemPos(page, "停止");
-        if (stopPos) {
-          console.log("ℹ 计时器到达 9/10 分，准备停止");
-          await page.mouse.move(stopPos.x, stopPos.y);
-          await screenshotWithMouse(page, "停止按钮", stopPos.x, stopPos.y);
-          console.log("ℹ 点击【停止】");
-          await clickByExactText(page, "停止");
-          await delay(3000);
-          await delay(2000);
-        }
-      } else {
-        console.log(`ℹ 分钟数${minute}不是9或10，不执行停止操作`);
+    if (minute === "9" || minute === "10") {
+      const stopPos = await getValidElemPos(page, "停止");
+      if (stopPos) {
+        console.log("ℹ 计时器到达 9/10 分，准备停止");
+        await page.mouse.move(stopPos.x, stopPos.y);
+        await screenshotWithMouse(page, "停止按钮", stopPos.x, stopPos.y);
+        console.log("ℹ 点击【停止】");
+        await clickByExactText(page, "停止");
+        await delay(3000);
+        await delay(2000);
       }
+    } else {
+      console.log(`ℹ 分钟数${minute}不是9或10，不执行停止操作`);
     }
 
   } catch (err) {
