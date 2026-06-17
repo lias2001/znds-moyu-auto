@@ -27,7 +27,7 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 红点截图 + 文件名带入坐标
+// 红点截图 + 文件名携带坐标
 async function screenshotWithMouse(page, type, x, y) {
   await page.evaluate((x, y) => {
     let dot = document.getElementById('mouse-dot');
@@ -45,7 +45,6 @@ async function screenshotWithMouse(page, type, x, y) {
     dot.style.top = `${y}px`;
   }, x, y);
 
-  // 文件名格式：类型_时间戳_X坐标_Y坐标.png
   const filename = `${type}_${Date.now()}_X${Math.round(x)}_Y${Math.round(y)}.png`;
   const screenshotPath = path.join(CONFIG.screenshotDir, filename);
   await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -57,33 +56,55 @@ async function screenshotWithMouse(page, type, x, y) {
   });
 }
 
-// 精准全文本匹配，仅返回坐标
-async function getElemCenterByExactText(page, targetText) {
+/**
+ * 增强匹配：精准文本 + 可见性 + 布局校验
+ * 过滤：隐藏元素、宽高为0、视口外、不可交互节点
+ */
+async function getValidElemPos(page, targetText) {
   return page.evaluate((txt) => {
     const nodes = document.querySelectorAll('button, .btn, a, span, div');
     for (let el of nodes) {
       const text = el.textContent.trim();
-      if (text === txt) {
-        const rect = el.getBoundingClientRect();
-        return {
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2
-        };
-      }
+      // 1. 精准全文匹配
+      if (text !== txt) continue;
+
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+
+      // 2. 过滤完全隐藏元素
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      // 3. 过滤宽高为0的占位节点
+      if (rect.width <= 2 || rect.height <= 2) continue;
+      // 4. 过滤坐标为 0,0 无效节点
+      if (rect.left === 0 && rect.top === 0) continue;
+      // 5. 过滤超出可视区域节点
+      if (rect.bottom < 0 || rect.right < 0) continue;
+
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2
+      };
     }
     return null;
   }, targetText);
 }
 
-// 页面内执行点击
+// 页面内执行点击（安全无跨上下文报错）
 async function clickByExactText(page, targetText) {
   await page.evaluate((txt) => {
     const nodes = document.querySelectorAll('button, .btn, a, span, div');
     for (let el of nodes) {
-      if (el.textContent.trim() === txt) {
-        el.click();
-        return true;
-      }
+      const text = el.textContent.trim();
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      // 同校验规则，只点击有效可见元素
+      if (text !== txt) continue;
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      if (rect.width <= 2 || rect.height <= 2) continue;
+      if (rect.left === 0 && rect.top === 0) continue;
+
+      el.click();
+      return true;
     }
     return false;
   }, targetText);
@@ -91,7 +112,7 @@ async function clickByExactText(page, targetText) {
 
 // 签到逻辑
 async function handleSignIn(page) {
-  const signPos = await getElemCenterByExactText(page, "每日签到");
+  const signPos = await getValidElemPos(page, "每日签到");
   if (signPos) {
     console.log("ℹ 检测到【每日签到】，移动鼠标并截图");
     await page.mouse.move(signPos.x, signPos.y);
@@ -102,7 +123,7 @@ async function handleSignIn(page) {
     return true;
   }
 
-  const signedPos = await getElemCenterByExactText(page, "今日已签到");
+  const signedPos = await getValidElemPos(page, "今日已签到");
   if (signedPos) {
     console.log("ℹ 检测到【今日已签到】，移动鼠标并截图");
     await page.mouse.move(signedPos.x, signedPos.y);
@@ -112,13 +133,13 @@ async function handleSignIn(page) {
     return true;
   }
 
-  console.log("ℹ 未检测到【每日签到】/【今日已签到】");
+  console.log("ℹ 未检测到有效【每日签到】/【今日已签到】");
   return false;
 }
 
-// 开始摸鱼
+// 开始摸鱼逻辑
 async function handleStartFish(page) {
-  const startPos = await getElemCenterByExactText(page, "开始摸鱼");
+  const startPos = await getValidElemPos(page, "开始摸鱼");
   if (startPos) {
     console.log("ℹ 检测到【开始摸鱼】，移动鼠标并截图");
     await page.mouse.move(startPos.x, startPos.y);
@@ -128,11 +149,11 @@ async function handleStartFish(page) {
     await delay(3000);
     return true;
   }
-  console.log("ℹ 未检测到【开始摸鱼】");
+  console.log("ℹ 未检测到有效【开始摸鱼】");
   return false;
 }
 
-// 停止摸鱼（判断计时器 9/10 分钟）
+// 停止摸鱼（计时器分钟 9 / 10）
 async function handleStopFish(page) {
   const minute = await page.evaluate(() => {
     const minEl = document.getElementById('timer-minutes');
@@ -141,7 +162,7 @@ async function handleStopFish(page) {
   console.log(`ℹ 计时器分钟：${minute}`);
 
   if (minute === "9" || minute === "10") {
-    const stopPos = await getElemCenterByExactText(page, "停止");
+    const stopPos = await getValidElemPos(page, "停止");
     if (stopPos) {
       console.log("ℹ 计时器到达 9/10 分，准备停止");
       await page.mouse.move(stopPos.x, stopPos.y);
@@ -156,7 +177,7 @@ async function handleStopFish(page) {
   return false;
 }
 
-// 单轮任务
+// 单轮任务执行
 async function runCycle(browser) {
   console.log("\n==================== 新一轮 ====================");
   let page = null;
@@ -167,13 +188,14 @@ async function runCycle(browser) {
     page.setDefaultTimeout(0);
     await page.setViewport(CONFIG.viewport);
 
+    // 载入页面 + 加长等待，确保动态DOM渲染完成
     await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
-    await page.goto(CONFIG.url, { waitUntil: "domcontentloaded" });
-    await delay(2000);
+    await page.goto(CONFIG.url, { waitUntil: "networkidle2" });
+    await delay(3000);
 
     console.log("ℹ 刷新页面");
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await delay(2000);
+    await page.reload({ waitUntil: "networkidle2" });
+    await delay(3000);
 
     const hasSign = await handleSignIn(page);
     if (!hasSign) {
@@ -194,7 +216,7 @@ async function runCycle(browser) {
   console.log("✅ 本轮结束");
 }
 
-// 主程序
+// 主程序入口
 async function main() {
   console.log("🔥 摸鱼程序已启动 - 每分钟一轮");
   console.log(`🔥 浏览器分辨率：${CONFIG.viewport.width}x${CONFIG.viewport.height}`);
