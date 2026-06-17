@@ -2,17 +2,19 @@ name: ZNDS定时摸鱼-每日6轮整点触发
 on:
   workflow_dispatch:
   schedule:
-    # 北京时间 1/5/9/13/17/21 整点自动执行
-    - cron: '0 17 * * *'
-    - cron: '0 21 * * *'
-    - cron: '0 1 * * *'
-    - cron: '0 5 * * *'
-    - cron: '0 9 * * *'
-    - cron: '0 13 * * *'
+    # 北京时间 1/5/9/13/17/21 整点自动执行（GitHub Actions使用UTC时间，需减8小时）
+    - cron: '0 17 * * *'  # 北京时间 1:00
+    - cron: '0 21 * * *'  # 北京时间 5:00
+    - cron: '0 1 * * *'   # 北京时间 9:00
+    - cron: '0 5 * * *'   # 北京时间 13:00
+    - cron: '0 9 * * *'   # 北京时间 17:00
+    - cron: '0 13 * * *'  # 北京时间 21:00
 
 permissions:
   actions: write
   contents: read
+  pages: write       # 新增：用于上传截图
+  id-token: write
 
 jobs:
   run:
@@ -40,6 +42,12 @@ jobs:
         if: steps.cache-znds.outputs.cache-hit != 'true'
         run: npm install puppeteer
 
-      - name: 执行39轮批量摸鱼任务
+      - name: 执行摸鱼任务（每分钟一轮）
         run: node moyu.js
 
+      - name: 上传截图到GitHub Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: znds-screenshots
+          path: screenshots/
+          retention-days: 7  # 截图保留7天
