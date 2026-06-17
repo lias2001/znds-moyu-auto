@@ -9,9 +9,7 @@ const CONFIG = {
 };
 
 const COOKIE = process.env.ZNDS_COOKIE || '';
-// 全局计数：记录当前是第几轮，控制截图
 let runCount = 0;
-// 仅前3轮允许截图
 const MAX_SCREENSHOT_ROUND = 3;
 
 if (!fs.existsSync(CONFIG.screenshotDir)) {
@@ -31,7 +29,6 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 红点截图：增加轮次判断，前3轮才截图
 async function screenshotWithMouse(page, type, x, y) {
   if (runCount > MAX_SCREENSHOT_ROUND) {
     console.log(`ℹ 第${runCount}轮，超出前3轮，跳过截图`);
@@ -107,7 +104,7 @@ async function clickByExactText(page, targetText) {
   }, targetText);
 }
 
-// 循环检测计时器：每分钟刷新页面，直到分钟为9/10
+// 内部循环：每1分钟刷新页面检测计时器，直到9/10分
 async function waitTimerTo9Or10(page) {
   while (true) {
     const minute = await page.evaluate(() => {
@@ -123,19 +120,15 @@ async function waitTimerTo9Or10(page) {
 
     console.log("ℹ 未到指定分钟，等待1分钟后刷新页面重新检测");
     await delay(60 * 1000);
-    // 刷新页面
     await page.reload({ waitUntil: "networkidle2" });
     await delay(2000);
   }
 }
 
-// 单轮任务执行
 async function runCycle(browser) {
   runCount++;
   console.log(`\n==================== 第${runCount}轮 ====================`);
   let page = null;
-  // 本轮默认间隔：非计时等待时为9分钟
-  let nextRoundDelay = 9 * 60 * 1000;
 
   try {
     page = await browser.newPage();
@@ -151,7 +144,7 @@ async function runCycle(browser) {
     await page.reload({ waitUntil: "networkidle2" });
     await delay(3000);
 
-    // 1. 识别签到
+    // 签到识别
     const signPos = await getValidElemPos(page, "每日签到");
     if (signPos) {
       console.log("ℹ 检测到【每日签到】，移动鼠标");
@@ -173,7 +166,7 @@ async function runCycle(browser) {
       }
     }
 
-    // 2. 识别开始摸鱼
+    // 开始摸鱼识别
     const startPos = await getValidElemPos(page, "开始摸鱼");
     if (startPos) {
       console.log("ℹ 检测到【开始摸鱼】，移动鼠标");
@@ -186,10 +179,10 @@ async function runCycle(browser) {
       console.log("ℹ 未检测到有效【开始摸鱼】");
     }
 
-    // 3. 计时器逻辑：循环等待直到分钟=9/10
+    // 循环等待计时器到9/10
     await waitTimerTo9Or10(page);
 
-    // 4. 点击停止按钮
+    // 点击停止
     const stopPos = await getValidElemPos(page, "停止");
     if (stopPos) {
       console.log("ℹ 识别到【停止】按钮，移动鼠标");
@@ -197,10 +190,9 @@ async function runCycle(browser) {
       await screenshotWithMouse(page, "停止按钮", stopPos.x, stopPos.y);
       console.log("ℹ 点击【停止】");
       await clickByExactText(page, "停止");
-      await delay(3000); // 等待页面自动刷新
+      await delay(3000);
     }
-
-    await delay(2000); // 额外等待2秒
+    await delay(2000);
 
   } catch (err) {
     console.error("❌ 本轮执行出错：", err.message);
@@ -210,15 +202,13 @@ async function runCycle(browser) {
       console.log("✅ 页面已关闭");
     }
   }
-  console.log("✅ 第" + runCount + "轮结束");
-  return nextRoundDelay;
+  console.log("✅ 第" + runCount + "轮结束，立即开启下一轮");
 }
 
-// 主程序入口
 async function main() {
   console.log("🔥 摸鱼程序已启动");
   console.log(`🔥 浏览器分辨率：${CONFIG.viewport.width}x${CONFIG.viewport.height}`);
-  console.log(`🔥 规则：仅前${MAX_SCREENSHOT_ROUND}轮截图，计时器非9/10则每分钟刷新检测`);
+  console.log(`🔥 规则：仅前${MAX_SCREENSHOT_ROUND}轮截图，计时器未到9/10则每分钟刷新检测，一轮结束立刻下一轮无等待`);
 
   const browser = await puppeteer.launch({
     headless: "new",
@@ -232,10 +222,8 @@ async function main() {
 
   try {
     while (true) {
-      // 执行单轮，获取下一轮等待时长
-      const waitTime = await runCycle(browser);
-      console.log(`ℹ 等待${waitTime / 1000 / 60}分钟，进入下一轮...`);
-      await delay(waitTime);
+      // 无任何延时，一轮跑完直接执行下一轮
+      await runCycle(browser);
     }
   } catch (err) {
     console.error("❌ 主循环异常：", err);
