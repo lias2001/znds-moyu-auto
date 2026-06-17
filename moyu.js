@@ -65,19 +65,14 @@ async function getValidElemPos(page, targetText) {
     const nodes = document.querySelectorAll('button, .btn, a, span, div');
     for (let el of nodes) {
       const text = el.textContent.trim();
-      // 1. 精准全文匹配
       if (text !== txt) continue;
 
       const style = window.getComputedStyle(el);
       const rect = el.getBoundingClientRect();
 
-      // 2. 过滤完全隐藏元素
       if (style.display === 'none' || style.visibility === 'hidden') continue;
-      // 3. 过滤宽高为0的占位节点
       if (rect.width <= 2 || rect.height <= 2) continue;
-      // 4. 过滤坐标为 0,0 无效节点
       if (rect.left === 0 && rect.top === 0) continue;
-      // 5. 过滤超出可视区域节点
       if (rect.bottom < 0 || rect.right < 0) continue;
 
       return {
@@ -89,7 +84,7 @@ async function getValidElemPos(page, targetText) {
   }, targetText);
 }
 
-// 页面内执行点击（安全无跨上下文报错）
+// 页面内执行点击
 async function clickByExactText(page, targetText) {
   await page.evaluate((txt) => {
     const nodes = document.querySelectorAll('button, .btn, a, span, div');
@@ -97,7 +92,6 @@ async function clickByExactText(page, targetText) {
       const text = el.textContent.trim();
       const style = window.getComputedStyle(el);
       const rect = el.getBoundingClientRect();
-      // 同校验规则，只点击有效可见元素
       if (text !== txt) continue;
       if (style.display === 'none' || style.visibility === 'hidden') continue;
       if (rect.width <= 2 || rect.height <= 2) continue;
@@ -108,73 +102,6 @@ async function clickByExactText(page, targetText) {
     }
     return false;
   }, targetText);
-}
-
-// 签到逻辑
-async function handleSignIn(page) {
-  const signPos = await getValidElemPos(page, "每日签到");
-  if (signPos) {
-    console.log("ℹ 检测到【每日签到】，移动鼠标并截图");
-    await page.mouse.move(signPos.x, signPos.y);
-    await screenshotWithMouse(page, "每日签到", signPos.x, signPos.y);
-    console.log("ℹ 点击【每日签到】");
-    await clickByExactText(page, "每日签到");
-    await delay(3000);
-    return true;
-  }
-
-  const signedPos = await getValidElemPos(page, "今日已签到");
-  if (signedPos) {
-    console.log("ℹ 检测到【今日已签到】，移动鼠标并截图");
-    await page.mouse.move(signedPos.x, signedPos.y);
-    await screenshotWithMouse(page, "今日已签到", signedPos.x, signedPos.y);
-    console.log("ℹ 今日已签到，无需操作");
-    await delay(2000);
-    return true;
-  }
-
-  console.log("ℹ 未检测到有效【每日签到】/【今日已签到】");
-  return false;
-}
-
-// 开始摸鱼逻辑
-async function handleStartFish(page) {
-  const startPos = await getValidElemPos(page, "开始摸鱼");
-  if (startPos) {
-    console.log("ℹ 检测到【开始摸鱼】，移动鼠标并截图");
-    await page.mouse.move(startPos.x, startPos.y);
-    await screenshotWithMouse(page, "开始摸鱼", startPos.x, startPos.y);
-    console.log("ℹ 点击【开始摸鱼】");
-    await clickByExactText(page, "开始摸鱼");
-    await delay(3000);
-    return true;
-  }
-  console.log("ℹ 未检测到有效【开始摸鱼】");
-  return false;
-}
-
-// 停止摸鱼（计时器分钟 9 / 10）
-async function handleStopFish(page) {
-  const minute = await page.evaluate(() => {
-    const minEl = document.getElementById('timer-minutes');
-    return minEl ? minEl.textContent.trim() : '';
-  });
-  console.log(`ℹ 计时器分钟：${minute}`);
-
-  if (minute === "9" || minute === "10") {
-    const stopPos = await getValidElemPos(page, "停止");
-    if (stopPos) {
-      console.log("ℹ 计时器到达 9/10 分，准备停止");
-      await page.mouse.move(stopPos.x, stopPos.y);
-      await screenshotWithMouse(page, "停止按钮", stopPos.x, stopPos.y);
-      console.log("ℹ 点击【停止】");
-      await clickByExactText(page, "停止");
-      await delay(3000);
-      await delay(2000);
-      return true;
-    }
-  }
-  return false;
 }
 
 // 单轮任务执行
@@ -188,7 +115,6 @@ async function runCycle(browser) {
     page.setDefaultTimeout(0);
     await page.setViewport(CONFIG.viewport);
 
-    // 载入页面 + 加长等待，确保动态DOM渲染完成
     await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
     await page.goto(CONFIG.url, { waitUntil: "networkidle2" });
     await delay(3000);
@@ -197,11 +123,65 @@ async function runCycle(browser) {
     await page.reload({ waitUntil: "networkidle2" });
     await delay(3000);
 
-    const hasSign = await handleSignIn(page);
-    if (!hasSign) {
-      const hasStart = await handleStartFish(page);
-      if (!hasStart) {
-        await handleStopFish(page);
+    // ========== 第一步：识别 每日签到 / 今日已签到（执行后不终止，继续往下） ==========
+    let hasSign = false;
+    const signPos = await getValidElemPos(page, "每日签到");
+    if (signPos) {
+      console.log("ℹ 检测到【每日签到】，移动鼠标并截图");
+      await page.mouse.move(signPos.x, signPos.y);
+      await screenshotWithMouse(page, "每日签到", signPos.x, signPos.y);
+      console.log("ℹ 点击【每日签到】");
+      await clickByExactText(page, "每日签到");
+      await delay(3000);
+      hasSign = true;
+    } else {
+      const signedPos = await getValidElemPos(page, "今日已签到");
+      if (signedPos) {
+        console.log("ℹ 检测到【今日已签到】，移动鼠标并截图");
+        await page.mouse.move(signedPos.x, signedPos.y);
+        await screenshotWithMouse(page, "今日已签到", signedPos.x, signedPos.y);
+        console.log("ℹ 今日已签到，无需操作");
+        await delay(2000);
+        hasSign = true;
+      } else {
+        console.log("ℹ 未检测到有效【每日签到】/【今日已签到】");
+      }
+    }
+
+    // ========== 第二步：固定继续识别 开始摸鱼 ==========
+    let hasStartFish = false;
+    const startPos = await getValidElemPos(page, "开始摸鱼");
+    if (startPos) {
+      console.log("ℹ 检测到【开始摸鱼】，移动鼠标并截图");
+      await page.mouse.move(startPos.x, startPos.y);
+      await screenshotWithMouse(page, "开始摸鱼", startPos.x, startPos.y);
+      console.log("ℹ 点击【开始摸鱼】");
+      await clickByExactText(page, "开始摸鱼");
+      await delay(3000);
+      hasStartFish = true;
+    } else {
+      console.log("ℹ 未检测到有效【开始摸鱼】");
+    }
+
+    // ========== 第三步：前两者都没识别到，才判断计时器 + 停止按钮 ==========
+    if (!hasSign && !hasStartFish) {
+      const minute = await page.evaluate(() => {
+        const minEl = document.getElementById('timer-minutes');
+        return minEl ? minEl.textContent.trim() : '';
+      });
+      console.log(`ℹ 计时器分钟：${minute}`);
+
+      if (minute === "9" || minute === "10") {
+        const stopPos = await getValidElemPos(page, "停止");
+        if (stopPos) {
+          console.log("ℹ 计时器到达 9/10 分，准备停止");
+          await page.mouse.move(stopPos.x, stopPos.y);
+          await screenshotWithMouse(page, "停止按钮", stopPos.x, stopPos.y);
+          console.log("ℹ 点击【停止】");
+          await clickByExactText(page, "停止");
+          await delay(3000);
+          await delay(2000);
+        }
       }
     }
 
