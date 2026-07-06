@@ -74,6 +74,7 @@ async function clickByExactText(page, targetText) {
   }
 }
 
+// 计时器循环：每次刷新页面后【先检测开始摸鱼】再读时间
 async function waitTimerTo9Or10(page) {
   while (true) {
     if (!isPageValid(page)) {
@@ -81,9 +82,10 @@ async function waitTimerTo9Or10(page) {
       return "pageInvalid";
     }
 
+    // ========== 修复核心：每次循环第一步重新检测开始摸鱼 ==========
     const startFishPos = await getValidElemPos(page, "开始摸鱼");
     if (startFishPos) {
-      console.log("ℹ 计时器循环内检测到【开始摸鱼】，执行点击");
+      console.log("ℹ 计时器循环刷新后检测到【开始摸鱼】，执行点击");
       await page.mouse.move(startFishPos.x, startFishPos.y);
       await clickByExactText(page, "开始摸鱼");
       await delay(2000);
@@ -93,6 +95,7 @@ async function waitTimerTo9Or10(page) {
       return "foundStartFish";
     }
 
+    // 未找到开始摸鱼，读取计时器分钟
     let minute = "";
     try {
       minute = await page.evaluate(() => {
@@ -116,6 +119,7 @@ async function waitTimerTo9Or10(page) {
     console.log("ℹ 未到指定分钟，等待1分钟后刷新页面重新检测");
     await delay(60 * 1000);
     if (!isPageValid(page)) break;
+    // 刷新页面，下一轮while循环会先查开始摸鱼
     await page.reload({ waitUntil: "networkidle2" });
     await delay(2000);
   }
@@ -151,6 +155,7 @@ async function runCycle(browser) {
       await page.reload({ waitUntil: "networkidle2" });
       await delay(3000);
 
+      // 签到判断
       const signPos = await getValidElemPos(page, "每日签到");
       if (signPos) {
         console.log("ℹ 检测到【每日签到】，移动鼠标并点击");
@@ -168,6 +173,7 @@ async function runCycle(browser) {
         }
       }
 
+      // 初始页面检测开始摸鱼
       const startPos = await getValidElemPos(page, "开始摸鱼");
       if (startPos) {
         console.log("ℹ 初始页面检测到【开始摸鱼】，点击");
@@ -217,7 +223,7 @@ async function runCycle(browser) {
 async function main() {
   console.log("🔥 摸鱼程序已启动");
   console.log(`🔥 浏览器分辨率：${CONFIG.viewport.width}x${CONFIG.viewport.height}`);
-  console.log(`🔥 规则：无截图功能，计时器循环同步检测开始摸鱼，单轮最长10分钟，一轮结束立刻下一轮`);
+  console.log(`🔥 规则：无截图，计时器每次刷新后先检测开始摸鱼，单轮最长10分钟，一轮结束立刻下一轮`);
 
   const browser = await puppeteer.launch({
     headless: "new",
@@ -233,7 +239,7 @@ async function main() {
     while (true) {
       await runCycle(browser);
     }
-  } catch (err) {
+  } catch (err)
     console.error("❌ 主循环异常：", err);
   } finally {
     await browser.close();
