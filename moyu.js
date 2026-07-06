@@ -3,7 +3,7 @@ const puppeteer = require('puppeteer');
 const CONFIG = {
   url: "https://www.znds.com/plugin.php?id=muanyun_053",
   viewport: { width: 980, height: 7728 },
-  singleRoundMaxTime: 10 * 60 * 1000 // 单轮最大10分钟强制结束
+  singleRoundMaxTime: 10 * 60 * 1000
 };
 
 const COOKIE = process.env.ZNDS_COOKIE || '';
@@ -22,7 +22,6 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 安全判断页面是否可用
 function isPageValid(page) {
   return page && !page.isClosed();
 }
@@ -35,19 +34,13 @@ async function getValidElemPos(page, targetText) {
       for (let el of nodes) {
         const text = el.textContent.trim();
         if (text !== txt) continue;
-
         const style = window.getComputedStyle(el);
         const rect = el.getBoundingClientRect();
-
         if (style.display === 'none' || style.visibility === 'hidden') continue;
         if (rect.width <= 2 || rect.height <= 2) continue;
         if (rect.left === 0 && rect.top === 0) continue;
         if (rect.bottom < 0 || rect.right < 0) continue;
-
-        return {
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2
-        };
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
       }
       return null;
     }, targetText);
@@ -70,7 +63,6 @@ async function clickByExactText(page, targetText) {
         if (style.display === 'none' || style.visibility === 'hidden') continue;
         if (rect.width <= 2 || rect.height <= 2) continue;
         if (rect.left === 0 && rect.top === 0) continue;
-
         el.click();
         return true;
       }
@@ -82,15 +74,13 @@ async function clickByExactText(page, targetText) {
   }
 }
 
-// 循环等待计时器，每次刷新同步检测【开始摸鱼】
 async function waitTimerTo9Or10(page) {
   while (true) {
     if (!isPageValid(page)) {
       console.log("ℹ 页面失效，退出计时器等待循环");
-      break;
+      return "pageInvalid";
     }
 
-    // 每次循环先检测是否存在【开始摸鱼】
     const startFishPos = await getValidElemPos(page, "开始摸鱼");
     if (startFishPos) {
       console.log("ℹ 计时器循环内检测到【开始摸鱼】，执行点击");
@@ -100,10 +90,9 @@ async function waitTimerTo9Or10(page) {
       console.log("ℹ 点击完成，刷新页面后结束本轮");
       await page.reload({ waitUntil: "networkidle2" });
       await delay(2000);
-      return "foundStartFish"; // 标记检测到开始摸鱼，直接结束本轮
+      return "foundStartFish";
     }
 
-    // 读取计时器分钟
     let minute = "";
     try {
       minute = await page.evaluate(() => {
@@ -133,7 +122,6 @@ async function waitTimerTo9Or10(page) {
   return "pageInvalid";
 }
 
-// 单轮任务，带10分钟超时强制中断
 async function runCycle(browser) {
   runCount++;
   console.log(`\n==================== 第${runCount}轮 ====================`);
@@ -163,7 +151,6 @@ async function runCycle(browser) {
       await page.reload({ waitUntil: "networkidle2" });
       await delay(3000);
 
-      // 签到识别
       const signPos = await getValidElemPos(page, "每日签到");
       if (signPos) {
         console.log("ℹ 检测到【每日签到】，移动鼠标并点击");
@@ -181,7 +168,6 @@ async function runCycle(browser) {
         }
       }
 
-      // 开始摸鱼初始识别
       const startPos = await getValidElemPos(page, "开始摸鱼");
       if (startPos) {
         console.log("ℹ 初始页面检测到【开始摸鱼】，点击");
@@ -190,13 +176,11 @@ async function runCycle(browser) {
         await delay(3000);
       } else {
         console.log("ℹ 初始页面未检测到有效【开始摸鱼】，进入计时器循环");
-        // 进入计时器循环，获取退出类型
         const timerResult = await waitTimerTo9Or10(page);
         if (timerResult === "foundStartFish") {
           breakByStartFish = true;
           return;
         }
-        // 到达9/10分钟，点击停止
         if (timerResult === "reachTargetTime" && isPageValid(page)) {
           const stopPos = await getValidElemPos(page, "停止");
           if (stopPos) {
@@ -208,7 +192,6 @@ async function runCycle(browser) {
           await delay(2000);
         }
       }
-
     } catch (err) {
       console.error("❌ 本轮执行出错：", err.message);
     } finally {
@@ -250,7 +233,7 @@ async function main() {
     while (true) {
       await runCycle(browser);
     }
-  } catch (err)
+  } catch (err) {
     console.error("❌ 主循环异常：", err);
   } finally {
     await browser.close();
