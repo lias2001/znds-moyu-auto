@@ -5,7 +5,6 @@ const CONFIG = {
   viewport: { width: 980, height: 7728 },
   singleRoundMaxTime: 10 * 60 * 1000
 };
-
 const COOKIE = process.env.ZNDS_COOKIE || '';
 let runCount = 0;
 
@@ -17,11 +16,9 @@ function parseCookie(str, domain) {
   });
   return list;
 }
-
 function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
-
 function isPageValid(page) {
   return page && !page.isClosed();
 }
@@ -29,23 +26,23 @@ function isPageValid(page) {
 async function getValidElemPos(page, targetText) {
   if (!isPageValid(page)) return null;
   try {
-    return page.evaluate((txt) => {
+    return page.evaluate(txt => {
       const nodes = document.querySelectorAll('button, .btn, a, span, div');
       for (let el of nodes) {
-        const text = el.textContent.trim();
-        if (text !== txt) continue;
-        const style = window.getComputedStyle(el);
+        const t = el.textContent.trim();
+        if (t !== txt) continue;
+        const st = window.getComputedStyle(el);
         const rect = el.getBoundingClientRect();
-        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        if (st.display === 'none' || st.visibility === 'hidden') continue;
         if (rect.width <= 2 || rect.height <= 2) continue;
         if (rect.left === 0 && rect.top === 0) continue;
         if (rect.bottom < 0 || rect.right < 0) continue;
-        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
       }
       return null;
     }, targetText);
   } catch (e) {
-    console.log(`ℹ 获取元素坐标失败，页面已刷新销毁：${e.message}`);
+    console.log(`ℹ 获取元素坐标失败：${e.message}`);
     return null;
   }
 }
@@ -53,14 +50,14 @@ async function getValidElemPos(page, targetText) {
 async function clickByExactText(page, targetText) {
   if (!isPageValid(page)) return false;
   try {
-    return await page.evaluate((txt) => {
+    return page.evaluate(txt => {
       const nodes = document.querySelectorAll('button, .btn, a, span, div');
       for (let el of nodes) {
-        const text = el.textContent.trim();
-        const style = window.getComputedStyle(el);
+        const t = el.textContent.trim();
+        if (t !== txt) continue;
+        const st = window.getComputedStyle(el);
         const rect = el.getBoundingClientRect();
-        if (text !== txt) continue;
-        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        if (st.display === 'none' || st.visibility === 'hidden') continue;
         if (rect.width <= 2 || rect.height <= 2) continue;
         if (rect.left === 0 && rect.top === 0) continue;
         el.click();
@@ -69,75 +66,64 @@ async function clickByExactText(page, targetText) {
       return false;
     }, targetText);
   } catch (e) {
-    console.log(`ℹ 点击失败，页面导航销毁上下文：${e.message}`);
+    console.log(`ℹ 点击失败：${e.message}`);
     return false;
   }
 }
 
-// 计时器循环：每次刷新页面后【先检测开始摸鱼】再读时间
-async function waitTimerTo9Or10(page) {
+async function waitTimerLoop(page) {
   while (true) {
-    if (!isPageValid(page)) {
-      console.log("ℹ 页面失效，退出计时器等待循环");
-      return "pageInvalid";
-    }
-
-    // ========== 修复核心：每次循环第一步重新检测开始摸鱼 ==========
-    const startFishPos = await getValidElemPos(page, "开始摸鱼");
-    if (startFishPos) {
-      console.log("ℹ 计时器循环刷新后检测到【开始摸鱼】，执行点击");
-      await page.mouse.move(startFishPos.x, startFishPos.y);
+    if (!isPageValid(page)) return "pageInvalid";
+    // 每次刷新后优先检测开始摸鱼
+    const fishPos = await getValidElemPos(page, "开始摸鱼");
+    if (fishPos) {
+      console.log("ℹ 计时器刷新页面检测到【开始摸鱼】，点击");
+      await page.mouse.move(fishPos.x, fishPos.y);
       await clickByExactText(page, "开始摸鱼");
       await delay(2000);
-      console.log("ℹ 点击完成，刷新页面后结束本轮");
-      await page.reload({ waitUntil: "networkidle2" });
+      await page.reload({waitUntil:"networkidle2"});
       await delay(2000);
-      return "foundStartFish";
+      return "foundFish";
     }
-
-    // 未找到开始摸鱼，读取计时器分钟
+    // 读取计时器分钟
     let minute = "";
     try {
-      minute = await page.evaluate(() => {
-        const minEl = document.getElementById('timer-minutes');
-        return minEl ? minEl.textContent.trim() : '';
+      minute = await page.evaluate(()=>{
+        const m = document.getElementById("timer-minutes");
+        return m ? m.textContent.trim() : "";
       });
-    } catch (e) {
-      console.log("ℹ 读取计时器失败，刷新页面重试");
+    } catch(e) {
+      console.log("ℹ 读取计时器失败，刷新重试");
       await delay(2000);
-      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.reload({waitUntil:"domcontentloaded"});
       await delay(2000);
       continue;
     }
-    console.log(`ℹ 实时检测计时器，当前分钟：${minute}`);
-
+    console.log(`ℹ 当前计时器分钟：${minute}`);
     if (minute === "9" || minute === "10") {
-      console.log("ℹ 计时器到达9/10分，结束等待");
-      return "reachTargetTime";
+      return "reachStop";
     }
-
-    console.log("ℹ 未到指定分钟，等待1分钟后刷新页面重新检测");
-    await delay(60 * 1000);
+    console.log("ℹ 未到9/10分，等待60秒刷新");
+    await delay(60000);
     if (!isPageValid(page)) break;
-    // 刷新页面，下一轮while循环会先查开始摸鱼
-    await page.reload({ waitUntil: "networkidle2" });
+    await page.reload({waitUntil:"networkidle2"});
     await delay(2000);
   }
   return "pageInvalid";
 }
 
-async function runCycle(browser) {
+async function runOneRound(browser) {
   runCount++;
   console.log(`\n==================== 第${runCount}轮 ====================`);
   let page = null;
-  let roundTimeout = null;
-  let roundTimeoutTriggered = false;
-  let breakByStartFish = false;
+  let timeoutTimer = null;
+  let isTimeout = false;
+  let earlyEndByFish = false;
 
-  const roundPromise = new Promise(async (resolve) => {
-    roundTimeout = setTimeout(() => {
-      roundTimeoutTriggered = true;
-      console.log(`⚠️ 第${runCount}轮已运行满10分钟，超时强制终止本轮`);
+  const task = new Promise(async resolve => {
+    timeoutTimer = setTimeout(()=>{
+      isTimeout = true;
+      console.log(`⚠️ 第${runCount}轮10分钟超时强制结束`);
       resolve();
     }, CONFIG.singleRoundMaxTime);
 
@@ -146,52 +132,50 @@ async function runCycle(browser) {
       page.setDefaultNavigationTimeout(0);
       page.setDefaultTimeout(0);
       await page.setViewport(CONFIG.viewport);
-
       await page.setCookie(...parseCookie(COOKIE, ".znds.com"));
-      await page.goto(CONFIG.url, { waitUntil: "networkidle2" });
+      await page.goto(CONFIG.url, {waitUntil:"networkidle2"});
       await delay(3000);
-
       console.log("ℹ 刷新页面");
-      await page.reload({ waitUntil: "networkidle2" });
+      await page.reload({waitUntil:"networkidle2"});
       await delay(3000);
 
       // 签到判断
-      const signPos = await getValidElemPos(page, "每日签到");
-      if (signPos) {
-        console.log("ℹ 检测到【每日签到】，移动鼠标并点击");
-        await page.mouse.move(signPos.x, signPos.y);
+      const signDaily = await getValidElemPos(page, "每日签到");
+      if (signDaily) {
+        console.log("ℹ 检测到【每日签到】，点击");
+        await page.mouse.move(signDaily.x, signDaily.y);
         await clickByExactText(page, "每日签到");
         await delay(3000);
       } else {
-        const signedPos = await getValidElemPos(page, "今日已签到");
-        if (signedPos) {
+        const signed = await getValidElemPos(page, "今日已签到");
+        if (signed) {
           console.log("ℹ 检测到【今日已签到】，无需操作");
-          await page.mouse.move(signedPos.x, signedPos.y);
+          await page.mouse.move(signed.x, signed.y);
           await delay(2000);
         } else {
-          console.log("ℹ 未检测到有效【每日签到】/【今日已签到】");
+          console.log("ℹ 无签到按钮");
         }
       }
 
-      // 初始页面检测开始摸鱼
-      const startPos = await getValidElemPos(page, "开始摸鱼");
-      if (startPos) {
+      // 初始页面判断开始摸鱼
+      const startFish = await getValidElemPos(page, "开始摸鱼");
+      if (startFish) {
         console.log("ℹ 初始页面检测到【开始摸鱼】，点击");
-        await page.mouse.move(startPos.x, startPos.y);
+        await page.mouse.move(startFish.x, startFish.y);
         await clickByExactText(page, "开始摸鱼");
         await delay(3000);
       } else {
-        console.log("ℹ 初始页面未检测到有效【开始摸鱼】，进入计时器循环");
-        const timerResult = await waitTimerTo9Or10(page);
-        if (timerResult === "foundStartFish") {
-          breakByStartFish = true;
+        console.log("ℹ 初始无开始摸鱼，进入计时器循环");
+        const res = await waitTimerLoop(page);
+        if (res === "foundFish") {
+          earlyEndByFish = true;
           return;
         }
-        if (timerResult === "reachTargetTime" && isPageValid(page)) {
-          const stopPos = await getValidElemPos(page, "停止");
-          if (stopPos) {
-            console.log("ℹ 识别到【停止】按钮，移动鼠标并点击");
-            await page.mouse.move(stopPos.x, stopPos.y);
+        if (res === "reachStop" && isPageValid(page)) {
+          const stopBtn = await getValidElemPos(page, "停止");
+          if (stopBtn) {
+            console.log("ℹ 检测到【停止】按钮，点击");
+            await page.mouse.move(stopBtn.x, stopBtn.y);
             await clickByExactText(page, "停止");
             await delay(3000);
           }
@@ -199,9 +183,9 @@ async function runCycle(browser) {
         }
       }
     } catch (err) {
-      console.error("❌ 本轮执行出错：", err.message);
+      console.error("❌ 本轮异常：", err.message);
     } finally {
-      clearTimeout(roundTimeout);
+      clearTimeout(timeoutTimer);
       if (page && !page.isClosed()) {
         await page.close();
         console.log("✅ 页面已关闭");
@@ -209,41 +193,35 @@ async function runCycle(browser) {
       resolve();
     }
   });
-
-  await roundPromise;
-  if (roundTimeoutTriggered) {
-    console.log(`✅ 第${runCount}轮【超时10分钟强制结束】，立即开启下一轮`);
-  } else if (breakByStartFish) {
-    console.log(`✅ 第${runCount}轮【计时器内检测到开始摸鱼，提前结束】，立即开启下一轮`);
+  await task;
+  if (isTimeout) {
+    console.log(`✅ 第${runCount}轮【超时结束】，立即下一轮`);
+  } else if (earlyEndByFish) {
+    console.log(`✅ 第${runCount}轮【计时器内抓到开始摸鱼提前结束】，立即下一轮`);
   } else {
-    console.log(`✅ 第${runCount}轮正常结束，立即开启下一轮`);
+    console.log(`✅ 第${runCount}轮正常结束，立即下一轮`);
   }
 }
 
 async function main() {
-  console.log("🔥 摸鱼程序已启动");
-  console.log(`🔥 浏览器分辨率：${CONFIG.viewport.width}x${CONFIG.viewport.height}`);
-  console.log(`🔥 规则：无截图，计时器每次刷新后先检测开始摸鱼，单轮最长10分钟，一轮结束立刻下一轮`);
-
+  console.log("🔥 ZNDS摸鱼启动 | 分辨率980x7728 | 单轮最长10分钟");
   const browser = await puppeteer.launch({
-    headless: "new",
+    headless:"new",
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       `--window-size=${CONFIG.viewport.width},${CONFIG.viewport.height}`
-    ],
+    ]
   });
-
   try {
     while (true) {
-      await runCycle(browser);
+      await runOneRound(browser);
     }
-  } catch (err)
+  } catch (err) {
     console.error("❌ 主循环异常：", err);
   } finally {
     await browser.close();
   }
 }
-
 main().catch(console.error);
