@@ -1,11 +1,10 @@
 const puppeteer = require('puppeteer');
-const fs = require('fs');
-const path = require('path');
 
 const CONFIG = {
   url: "https://www.znds.com/plugin.php?id=muanyun_053",
   viewport: { width: 980, height: 7728 },
-  singleRoundMaxTime: 10 * 60 * 1000 // 单轮最大10分钟强制结束
+  singleRoundMaxTime: 10 * 60 * 1000, // 单轮最长10分钟强制结束
+  timerCheckInterval: 30 * 1000 // 每30秒刷新检测计时器
 };
 
 const COOKIE = process.env.ZNDS_COOKIE || '';
@@ -84,8 +83,7 @@ async function clickByExactText(page, targetText) {
   }
 }
 
-// 循环等待计时器到9/10
-// 新增：每次刷新后先检测并点击【开始摸鱼】
+// 循环等待计时器到9/10，每30秒刷新，检测开始摸鱼
 async function waitTimerTo9Or10(page) {
   while (true) {
     if (!isPageValid(page)) {
@@ -93,14 +91,17 @@ async function waitTimerTo9Or10(page) {
       break;
     }
 
-    // 新增：每次刷新页面后优先检测【开始摸鱼】并点击
+    // 检测【开始摸鱼】
     const loopStartPos = await getValidElemPos(page, "开始摸鱼");
     if (loopStartPos) {
       console.log("ℹ 计时器循环内检测到【开始摸鱼】，执行点击");
       await clickByExactText(page, "开始摸鱼");
       await delay(3000);
+    } else {
+      console.log("ℹ 本次刷新未检测到【开始摸鱼】");
     }
 
+    // 读取计时器分钟
     let minute = "";
     try {
       minute = await page.evaluate(() => {
@@ -121,8 +122,8 @@ async function waitTimerTo9Or10(page) {
       return;
     }
 
-    console.log("ℹ 未到指定分钟，等待1分钟后刷新页面重新检测");
-    await delay(60 * 1000);
+    console.log(`ℹ 未到指定分钟，等待30秒后刷新页面重新检测`);
+    await delay(CONFIG.timerCheckInterval);
     if (!isPageValid(page)) break;
     await page.reload({ waitUntil: "networkidle2" });
     await delay(2000);
@@ -184,7 +185,7 @@ async function runCycle(browser) {
         console.log("ℹ 初始页面未检测到有效【开始摸鱼】");
       }
 
-      // 循环等待计时器到9/10（内部每次刷新都会检测开始摸鱼）
+      // 循环等待计时器到9/10（每30秒刷新检测）
       if (isPageValid(page)) await waitTimerTo9Or10(page);
 
       // 点击停止
@@ -221,7 +222,7 @@ async function runCycle(browser) {
 async function main() {
   console.log("🔥 摸鱼程序已启动");
   console.log(`🔥 浏览器分辨率：${CONFIG.viewport.width}x${CONFIG.viewport.height}`);
-  console.log(`🔥 规则：无截图，计时器每分钟刷新先检测开始摸鱼，单轮最长10分钟，一轮结束立刻下一轮`);
+  console.log(`🔥 规则：计时器每30秒刷新检测开始摸鱼，单轮最长10分钟，一轮结束立刻下一轮，无截图`);
 
   const browser = await puppeteer.launch({
     headless: "new",
