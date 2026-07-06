@@ -71,13 +71,13 @@ async function clickByExactText(page, targetText) {
   }
 }
 
+// 重写计时器循环：刷新后先检测开始摸鱼，再读时间，再等60秒刷新
 async function waitTimerLoop(page) {
   while (true) {
-    if (!isPageValid(page)) return "pageInvalid";
-    // 每次刷新后优先检测开始摸鱼
+    // 第一步：刷新页面后优先检测开始摸鱼
     const fishPos = await getValidElemPos(page, "开始摸鱼");
     if (fishPos) {
-      console.log("ℹ 计时器刷新页面检测到【开始摸鱼】，点击");
+      console.log("ℹ 刷新页面后检测到【开始摸鱼】，点击");
       await page.mouse.move(fishPos.x, fishPos.y);
       await clickByExactText(page, "开始摸鱼");
       await delay(2000);
@@ -85,7 +85,8 @@ async function waitTimerLoop(page) {
       await delay(2000);
       return "foundFish";
     }
-    // 读取计时器分钟
+
+    // 第二步：读取打印分钟
     let minute = "";
     try {
       minute = await page.evaluate(()=>{
@@ -100,14 +101,19 @@ async function waitTimerLoop(page) {
       continue;
     }
     console.log(`ℹ 当前计时器分钟：${minute}`);
+
+    // 第三步：判断是否到停止时间
     if (minute === "9" || minute === "10") {
       return "reachStop";
     }
-    console.log("ℹ 未到9/10分，等待60秒刷新");
+
+    // 第四步：未到时间，等待60秒再刷新
+    console.log("ℹ 未到9/10分，等待60秒后刷新页面");
     await delay(60000);
     if (!isPageValid(page)) break;
     await page.reload({waitUntil:"networkidle2"});
     await delay(2000);
+    // 回到while开头，立刻重新检测开始摸鱼
   }
   return "pageInvalid";
 }
@@ -139,7 +145,7 @@ async function runOneRound(browser) {
       await page.reload({waitUntil:"networkidle2"});
       await delay(3000);
 
-      // 签到判断
+      // 签到逻辑
       const signDaily = await getValidElemPos(page, "每日签到");
       if (signDaily) {
         console.log("ℹ 检测到【每日签到】，点击");
@@ -157,7 +163,7 @@ async function runOneRound(browser) {
         }
       }
 
-      // 初始页面判断开始摸鱼
+      // 初始页面检测开始摸鱼
       const startFish = await getValidElemPos(page, "开始摸鱼");
       if (startFish) {
         console.log("ℹ 初始页面检测到【开始摸鱼】，点击");
