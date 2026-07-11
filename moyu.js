@@ -1,7 +1,7 @@
 const puppeteer = require('puppeteer');
 
 const CONFIG = {
-  url: "https://www.znds.com/plugin.php?id=muanyun_053",
+  url: "https://www.znds.com/qiandao.html",
   viewport: { width: 980, height: 7728 },
   singleRoundMaxTime: 10 * 60 * 1000, // 单轮最长10分钟强制结束
   timerCheckInterval: 30 * 1000 // 每30秒刷新检测计时器
