@@ -14,8 +14,9 @@
  *   MOYU_URL         调试用，可指向本地 mock 页面
  *   STOP_AT_MINUTES  计时到几分钟点停止，默认 9
  *   POLL_MS          计时器轮询间隔，默认 30000
+ *   STOP_TO_START_WAIT_MS  点停止后等多久再点开始，默认 2000（等弹出页关闭）
  *
- * 摸鱼机制：计时满 9 分钟 → 点【停止】→ 立刻【开始摸鱼】→ 继续累计，如此反复。
+ * 摸鱼机制：计时满 9 分钟 → 点【停止】→ 关闭页面 → 重新打开页面 → 点【开始摸鱼】→ 继续累计，如此反复。
  * GitHub Actions 单 job 上限 6 小时，到点被 kill 前会尝试点停止收尾。
  */
 
@@ -42,6 +43,7 @@ const CFG = {
   stopAtMinutes: Number(process.env.STOP_AT_MINUTES || 9),
   pollMs: Number(process.env.POLL_MS || 30000),
   clickWait: 3000,
+  stopWait: Number(process.env.STOP_TO_START_WAIT_MS || 2000), // 停止后等弹出页关闭
   navTimeout: 45000,
   url: process.env.MOYU_URL || PAGE_URL,
   viewport: { width: 980, height: 1600 },
@@ -128,12 +130,20 @@ const getFormhash = (html) => (html.match(/name="formhash"\s+value="([0-9a-zA-Z]
 const isLoggedIn = (html) => !/id="lsform"|name="loginsubmit"|只需一步[，,]快速开始/.test(html);
 
 function getStats(html) {
+  // 先去掉 HTML 注释：页面里残留的旧版注释块会把「累计经验」误当成「当前等级」
+  const clean = html.replace(/<!--[\s\S]*?-->/g, '');
   const pick = (label) => {
-    const re = new RegExp(label + '[\\s\\S]{0,160}?stat-value[^>]*>\\s*(\\d+(?:\\.\\d+)?)');
-    const m = html.match(re);
+    const re = new RegExp(label + '[\\s\\S]{0,200}?stat-value[^>]*>\\s*(\\d+(?:\\.\\d+)?)');
+    const m = clean.match(re);
     return m ? m[1] : null;
   };
-  return { total: pick('累计签到'), streak: pick('连续签到'), fishing: pick('摸鱼时长'), level: pick('当前等级') };
+  const lv = clean.match(/当前等级[\s\S]{0,240}?Lv\.[\s\S]{0,40}?(\d+(?:\.\d+)?)/);
+  return {
+    total: pick('累计签到'),
+    streak: pick('连续签到'),
+    fishing: pick('摸鱼时长'),
+    level: lv ? lv[1] : pick('当前等级'),
+  };
 }
 
 /* ============================== 签到 ============================== */
@@ -252,6 +262,58 @@ async function launchBrowser(headless = true) {
 
 /* ============================== 摸鱼 ============================== */
 
+/** 关闭【停止】后弹出的新标签页（保留主页面） */
+async function closeExtraPages() {
+  if (!state.browser) return 0;
+  let closed = 0;
+  try {
+    const pages = await state.browser.pages();
+    for (const p of pages) {
+      if (p === state.page) continue;
+      const url = p.url();
+      try {
+        await p.close();
+        closed++;
+        console.log(`ℹ 已关闭弹出页面：${url.slice(0, 90)}`);
+      } catch {}
+    }
+  } catch {}
+  return closed;
+}
+
+/**
+ * 停止后的重启流程：等弹出页出来 → 关掉所有页面 → 重新打开页面 → 点【开始摸鱼】
+ * 站点停止时会弹页面/改状态，直接点开始点不到，重开页面最稳
+ */
+async function restartAfterStop(cookies) {
+  await delay(CFG.stopWait); // 等停止后的新页面弹出来/自己关掉
+
+  if (isAlive(state.page)) {
+    await state.page.close().catch(() => {});
+    console.log('ℹ 已关闭旧页面');
+  }
+  await closeExtraPages();
+  await delay(800);
+
+  state.page = await openPage(state.browser, cookies);
+  console.log('ℹ 已重新打开页面');
+
+  for (let i = 0; i < 5; i++) {
+    if (!isAlive(state.page)) {
+      state.page = await openPage(state.browser, cookies);
+    }
+    if (await clickByText(state.page, '开始摸鱼')) {
+      console.log('▶ 点击【开始摸鱼】');
+      await delay(CFG.clickWait);
+      return true;
+    }
+    console.log(`ℹ 新页面未找到【开始摸鱼】，刷新重试（${i + 1}/5）`);
+    await state.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+    await delay(2000);
+  }
+  return false;
+}
+
 async function clickByText(page, text) {
   if (!isAlive(page)) return false;
   try {
@@ -314,7 +376,7 @@ async function stopFishing(page, tag) {
   if (!isAlive(page)) return false;
   if (await clickByText(page, '停止')) {
     console.log(`⏹ ${tag}：已点击【停止】`);
-    await delay(CFG.clickWait);
+    await delay(1000);
     return true;
   }
   return false;
@@ -322,7 +384,7 @@ async function stopFishing(page, tag) {
 
 async function moyuLoop(cookies) {
   console.log('\n========== 摸鱼（循环） ==========');
-  console.log(`🔥 计时满 ${CFG.stopAtMinutes} 分钟 → 停止 → 立刻重开；轮询 ${CFG.pollMs / 1000}s`);
+  console.log(`🔥 计时满 ${CFG.stopAtMinutes} 分钟 → 停止 → 关页面重开；轮询 ${CFG.pollMs / 1000}s`);
   console.log(CFG.minutes > 0 ? `🔥 上限 ${CFG.minutes} 分钟（调试模式）` : '🔥 不限时长，跑到进程被终止为止');
 
   state.browser = await launchBrowser(true);
@@ -375,10 +437,10 @@ async function moyuLoop(cookies) {
         state.rounds++;
         console.log(`✅ 完成第 ${state.rounds} 轮（累计运行 ${elapsedMin()} 分钟）`);
 
-        if (await clickByText(state.page, '开始摸鱼')) {
+        if (await restartAfterStop(cookies)) {
           lastStartAt = Date.now();
-          console.log('▶ 重新开始摸鱼');
-          await delay(CFG.clickWait);
+        } else {
+          console.log('⚠ 重开失败，交给下一轮检测');
         }
       }
       continue;
@@ -386,6 +448,7 @@ async function moyuLoop(cookies) {
 
     if (ticks++ % 10 === 0) {
       console.log(`ℹ 计时 ${min ?? '?'} 分 / 已完成 ${state.rounds} 轮 / 运行 ${elapsedMin()} 分钟`);
+      await closeExtraPages();
     }
 
     await delay(CFG.pollMs);
@@ -398,7 +461,14 @@ async function moyuLoop(cookies) {
   }
 
   await stopFishing(state.page, '收尾');
-  return { rounds: state.rounds, minutes: elapsedMin() };
+  const result = { rounds: state.rounds, minutes: elapsedMin() };
+
+  // 正常结束要关掉浏览器，否则进程不会退出
+  try {
+    if (isAlive(state.page)) await state.page.close().catch(() => {});
+    if (state.browser) await Promise.race([state.browser.close(), delay(5000)]);
+  } catch {}
+  return result;
 }
 
 /* ======================= 本地导出 Cookie ======================= */
