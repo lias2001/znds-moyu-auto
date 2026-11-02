@@ -1,0 +1,43 @@
+name: ZNDS 签到摸鱼
+
+on:
+  schedule:
+    # UTC 时间；北京时间 = UTC+8。每 3 小时一次，脚本本身不限时
+    - cron: "20 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # 新一轮触发时结束上一轮（旧进程会收到 SIGTERM，先点【停止】再退出）
+  group: znds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  daily:
+    name: 签到 + 摸鱼
+    runs-on: ubuntu-latest
+    # 兜底上限：正常每 3 小时会被新一轮替换，跑不到这里
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 缓存 Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/puppeteer
+          key: puppeteer-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: 签到一次 + 摸鱼循环
+        env:
+          ZNDS_COOKIE: ${{ secrets.ZNDS_COOKIE }}
+        run: node znds.js
