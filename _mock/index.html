@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><title>mock</title></head>
+<body><button id="startBtn">开始摸鱼</button><button id="stopBtn">停止</button>
+<div class="timer-display" id="timer-minutes">0</div>
+<script>
+let startTs=Number(sessionStorage.getItem('s')||0), iv=null;
+const mEl=document.getElementById('timer-minutes'), sB=document.getElementById('startBtn'), pB=document.getElementById('stopBtn');
+function paint(){const f=startTs>0;sB.style.display=f?'none':'inline-block';pB.style.display=f?'inline-block':'none';mEl.textContent=String(f?Math.floor((Date.now()-startTs)/1000):0);}
+function tick(){if(iv){clearInterval(iv);iv=null;}if(startTs>0)iv=setInterval(paint,500);}
+sB.onclick=()=>{if(startTs>0)return;startTs=Date.now();sessionStorage.setItem('s',startTs);paint();tick();};
+pB.onclick=()=>{startTs=0;sessionStorage.removeItem('s');paint();tick();};
+paint();tick();
+</script></body></html>

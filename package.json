@@ -1,8 +1,13 @@
 {
-  "name": "znds-moyu-actions",
-  "version": "1.0.0",
+  "name": "znds-auto",
+  "version": "2.0.0",
+  "private": true,
+  "description": "ZNDS 签到 + 摸鱼自动化（单文件，GitHub Actions 常驻 6 小时）",
+  "scripts": {
+    "start": "node znds.js",
+    "get-cookie": "node znds.js --export-cookie"
+  },
   "dependencies": {
-    "puppeteer-core": "^22.0.0",
-    "puppeteer": "^22.0.0"
+    "puppeteer": "^23.0.0"
   }
 }
