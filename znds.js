@@ -44,7 +44,7 @@ const CFG = {
   pollMs: Number(process.env.POLL_MS || 30000),
   clickWait: 3000,
   stopWait: Number(process.env.STOP_TO_START_WAIT_MS || 2000), // 停止后等弹出页关闭
-  navTimeout: 45000,
+  navTimeout: 60000,
   url: process.env.MOYU_URL || PAGE_URL,
   viewport: { width: 980, height: 1600 },
 };
@@ -295,12 +295,22 @@ async function restartAfterStop(cookies) {
   await closeExtraPages();
   await delay(800);
 
-  state.page = await openPage(state.browser, cookies);
-  console.log('ℹ 已重新打开页面');
+  try {
+    state.page = await openPageWithRetry(cookies);
+    console.log('ℹ 已重新打开页面');
+  } catch (e) {
+    console.log(`⚠ 重新打开页面失败：${String(e.message).split('\n')[0]}`);
+    console.log('   本轮跳过重开，等主循环下一轮再试');
+    return false;
+  }
 
   for (let i = 0; i < 5; i++) {
     if (!isAlive(state.page)) {
-      state.page = await openPage(state.browser, cookies);
+      try {
+        state.page = await openPageWithRetry(cookies);
+      } catch {
+        return false;
+      }
     }
     if (await clickByText(state.page, '开始摸鱼')) {
       console.log('▶ 点击【开始摸鱼】');
@@ -372,6 +382,22 @@ async function openPage(browser, cookies) {
   return page;
 }
 
+/** 打开页面失败（超时/限流）要重试，不能因为一次超时就把整轮任务打死 */
+async function openPageWithRetry(cookies, attempts = 4) {
+  let lastErr;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await openPage(state.browser, cookies);
+    } catch (e) {
+      lastErr = e;
+      console.log(`⚠ 打开页面失败（${i}/${attempts}）：${String(e.message).split('\n')[0]}`);
+      await closeExtraPages();
+      if (i < attempts) await delay(8000 * i); // 8s / 16s / 24s 退避
+    }
+  }
+  throw lastErr;
+}
+
 async function stopFishing(page, tag) {
   if (!isAlive(page)) return false;
   if (await clickByText(page, '停止')) {
@@ -388,7 +414,7 @@ async function moyuLoop(cookies) {
   console.log(CFG.minutes > 0 ? `🔥 上限 ${CFG.minutes} 分钟（调试模式）` : '🔥 不限时长，跑到进程被终止为止');
 
   state.browser = await launchBrowser(true);
-  state.page = await openPage(state.browser, cookies);
+  state.page = await openPageWithRetry(cookies);
 
   const html = await state.page.content();
   if (!isLoggedIn(html)) throw new Error('Cookie 无效或已过期，请重新导出 ZNDS_COOKIE');
@@ -421,42 +447,54 @@ async function moyuLoop(cookies) {
   };
 
   while (!state.shutdown && !outOfTime()) {
-    if (!isAlive(state.page)) {
-      console.log('⚠ 页面失效，重新打开');
-      state.page = await openPage(state.browser, cookies);
-    }
-
-    await ensureStarted();
-
-    const timer = await readTimer(state.page);
-    const min = timer.minutes;
-
-    if (min !== null && min >= CFG.stopAtMinutes) {
-      console.log(`⏱ 计时 ${min} 分，达到阈值 ${CFG.stopAtMinutes}`);
-      if (await stopFishing(state.page, '本轮')) {
-        state.rounds++;
-        console.log(`✅ 完成第 ${state.rounds} 轮（累计运行 ${elapsedMin()} 分钟）`);
-
-        if (await restartAfterStop(cookies)) {
-          lastStartAt = Date.now();
-        } else {
-          console.log('⚠ 重开失败，交给下一轮检测');
-        }
+    try {
+      if (!isAlive(state.page)) {
+        console.log('⚠ 页面失效，重新打开');
+        state.page = await openPageWithRetry(cookies);
       }
-      continue;
-    }
 
-    if (ticks++ % 10 === 0) {
-      console.log(`ℹ 计时 ${min ?? '?'} 分 / 已完成 ${state.rounds} 轮 / 运行 ${elapsedMin()} 分钟`);
+      await ensureStarted();
+
+      const timer = await readTimer(state.page);
+      const min = timer.minutes;
+
+      if (min !== null && min >= CFG.stopAtMinutes) {
+        console.log(`⏱ 计时 ${min} 分，达到阈值 ${CFG.stopAtMinutes}`);
+        if (await stopFishing(state.page, '本轮')) {
+          state.rounds++;
+          console.log(`✅ 完成第 ${state.rounds} 轮（累计运行 ${elapsedMin()} 分钟）`);
+
+          if (await restartAfterStop(cookies)) {
+            lastStartAt = Date.now();
+          } else {
+            console.log('⚠ 重开失败，交给下一轮检测');
+            await delay(20000);
+          }
+        }
+        continue;
+      }
+
+      if (ticks++ % 10 === 0) {
+        console.log(`ℹ 计时 ${min ?? '?'} 分 / 已完成 ${state.rounds} 轮 / 运行 ${elapsedMin()} 分钟`);
+        await closeExtraPages();
+      }
+
+      await delay(CFG.pollMs);
+
+      // 计时器为服务端渲染，刷新页面才能看到最新分钟数
+      if (isAlive(state.page) && !state.shutdown) {
+        await state.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+        await delay(1500);
+      }
+    } catch (err) {
+      // 网络抖动/超时不该终止整轮任务，歇一会儿继续
+      console.log(`⚠ 本轮异常（已忽略，30s 后继续）：${String(err.message).split('\n')[0]}`);
+      if (err.fatal) throw err;
       await closeExtraPages();
-    }
-
-    await delay(CFG.pollMs);
-
-    // 计时器为服务端渲染，刷新页面才能看到最新分钟数
-    if (isAlive(state.page) && !state.shutdown) {
-      await state.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
-      await delay(1500);
+      await delay(30000);
+      if (!isAlive(state.page)) {
+        state.page = await openPageWithRetry(cookies).catch(() => null);
+      }
     }
   }
 
@@ -576,11 +614,25 @@ async function shutdown(signal) {
 
   if (hasFlag('signin-only')) return;
 
-  try {
-    const r = await moyuLoop(cookies);
-    console.log(`✅ 摸鱼结束：${r.rounds} 轮 / ${r.minutes} 分钟`);
-  } catch (err) {
-    console.error('❌ 摸鱼失败：' + err.message);
-    process.exit(1);
+  // 整个摸鱼循环崩掉就重建一次（最多 5 次），别因为一次网络超时浪费整轮 3 小时
+  for (let attempt = 1; attempt <= 5 && !state.shutdown; attempt++) {
+    try {
+      const r = await moyuLoop(cookies);
+      console.log(`✅ 摸鱼结束：${r.rounds} 轮 / ${r.minutes} 分钟`);
+      return;
+    } catch (err) {
+      const msg = String(err.message).split('\n')[0];
+      console.error(`❌ 摸鱼失败（第 ${attempt}/5 次）：${msg}`);
+
+      try {
+        if (state.browser) await Promise.race([state.browser.close(), delay(5000)]);
+      } catch {}
+      state.browser = null;
+      state.page = null;
+
+      if (/Cookie/i.test(msg) || attempt === 5) process.exit(1);
+      console.log('ℹ 60 秒后重启摸鱼循环');
+      await delay(60000);
+    }
   }
 })();
