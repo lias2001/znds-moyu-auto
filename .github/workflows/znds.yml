@@ -2,24 +2,22 @@ name: ZNDS 签到摸鱼
 
 on:
   schedule:
-    # UTC 时间；北京时间 = UTC+8。每 3 小时一次，脚本本身不限时
+    # UTC 时间；北京时间 = UTC+8。每 3 小时一次
     - cron: "20 */3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  # 新一轮触发时结束上一轮（旧进程会收到 SIGTERM，先点【停止】再退出）
-  group: znds-${{ github.ref }}
-  cancel-in-progress: true
+# 不加 concurrency：万一重叠，两轮直接并行跑（不取消、不排队）
 
 jobs:
   daily:
     name: 签到 + 摸鱼
     runs-on: ubuntu-latest
-    # 兜底上限：正常每 3 小时会被新一轮替换，跑不到这里
-    timeout-minutes: 360
+    # 必须小于触发间隔(180min)，否则任务重叠：新一轮只能在旧任务结束后才启动，
+    # 表现出来就是「3 小时的 cron 变成了 6 小时一次」。留 10 分钟缓冲。
+    timeout-minutes: 170
     steps:
       - uses: actions/checkout@v4
 
@@ -40,4 +38,6 @@ jobs:
       - name: 签到一次 + 摸鱼循环
         env:
           ZNDS_COOKIE: ${{ secrets.ZNDS_COOKIE }}
+          # 45 秒刷新一次，降低被站点限流的概率（发现 9 分钟的时机会晚 ~45s，仍在 10 分钟上限内）
+          POLL_MS: "45000"
         run: node znds.js
