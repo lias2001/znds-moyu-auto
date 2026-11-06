@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     # 必须小于触发间隔(180min)，否则任务重叠：新一轮只能在旧任务结束后才启动，
     # 表现出来就是「3 小时的 cron 变成了 6 小时一次」。留 10 分钟缓冲。
-    timeout-minutes: 170
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
