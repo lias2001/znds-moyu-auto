@@ -3,7 +3,7 @@ name: ZNDS 签到摸鱼
 on:
   schedule:
     # UTC 时间；北京时间 = UTC+8。每 3 小时一次
-    - cron: "20 */3 * * *"
+    - cron: "0 1,4,7,10,13,16,19,22 * * *"
   workflow_dispatch:
 
 permissions:
