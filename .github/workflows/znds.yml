@@ -1,22 +1,80 @@
 name: ZNDS 签到摸鱼
 
+# 调度思路：
+#   1) schedule 每 10 分钟跑一个轻量「调度检查」job（5 分钟超时，只做判断）
+#   2) 检查当前所处的 3 小时档（北京 00/03/06/09/12/15/18/21 点）是否已有主任务
+#   3) 没有就用 workflow_dispatch 触发主任务 → 主任务跑满 6 小时
+# 好处：某次 cron 被延迟或丢弃时，后续任意一次检查都会补上，最多晚 10 分钟。
 on:
   schedule:
-    # UTC 时间；北京时间 = UTC+8。每 3 小时一次
-    - cron: "0 1,4,7,10,13,16,19,22 * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: write # 调度检查需要用 GITHUB_TOKEN 触发 workflow_dispatch
 
-# 不加 concurrency：万一重叠，两轮直接并行跑（不取消、不排队）
+# 不加 concurrency：主任务之间允许并行（不取消、不排队）
 
 jobs:
-  daily:
-    name: 签到 + 摸鱼
+  tick:
+    name: 调度检查
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    # 必须小于触发间隔(180min)，否则任务重叠：新一轮只能在旧任务结束后才启动，
-    # 表现出来就是「3 小时的 cron 变成了 6 小时一次」。留 10 分钟缓冲。
+    timeout-minutes: 5
+    steps:
+      - name: 判断当前 3 小时档是否需要启动主任务
+        id: due
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # 纯 epoch 计算，不依赖 runner 的 TZ 设置
+          OFFSET=28800      # 北京时间 +8h
+          SLOT_LEN=10800    # 3 小时
+          NOW=$(date -u +%s)
+          B=$(( NOW + OFFSET ))
+          SLOT=$(( B - B % SLOT_LEN ))
+          SLOT_START_UTC=$(date -u -d "@$(( SLOT - OFFSET ))" +%Y-%m-%dT%H:%M:%SZ)
+          echo "当前档起点：北京 $(date -u -d "@$SLOT" +%H:%M)（UTC $SLOT_START_UTC）"
+
+          RUNS=$(gh run list --repo "$REPO" --workflow znds.yml --limit 50 \
+                  --json createdAt,status,conclusion,event)
+
+          # 本档内已触发过的「主任务」次数（只看 workflow_dispatch，排除 tick 自身）
+          # 允许 1 次自动重试，避免失败后每 10 分钟不断堆积 job
+          CNT=$(echo "$RUNS" | jq --arg s "$SLOT_START_UTC" \
+            '[.[] | select(.event=="workflow_dispatch" and .createdAt >= $s)] | length')
+          # 当前并行中的主任务数（仅日志，不阻止并行）
+          BUSY=$(echo "$RUNS" | jq \
+            '[.[] | select(.event=="workflow_dispatch" and (.status=="in_progress" or .status=="queued"))] | length')
+
+          echo "本档已触发次数：$CNT（上限 2），当前并行主任务：$BUSY"
+
+          if [ "$CNT" -ge 2 ]; then
+            echo "本档已触发 2 次，跳过"
+            echo "fire=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "本档需要启动主任务"
+            echo "fire=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 触发主任务
+        if: steps.due.outputs.fire == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run znds.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
+          echo "已触发主任务"
+
+  main:
+    name: 签到 + 摸鱼
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # 每轮不限时：360 是 GitHub 单 job 硬上限（6 小时），写更大也无效。
+    # 跑满 6 小时被 SIGTERM 终止，脚本会先点【停止】再退出。
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +96,6 @@ jobs:
       - name: 签到一次 + 摸鱼循环
         env:
           ZNDS_COOKIE: ${{ secrets.ZNDS_COOKIE }}
-          # 45 秒刷新一次，降低被站点限流的概率（发现 9 分钟的时机会晚 ~45s，仍在 10 分钟上限内）
-          POLL_MS: "45000"
+          # 29 秒刷新一次，降低被站点限流的概率
+          POLL_MS: "29000"
         run: node znds.js
